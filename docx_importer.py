@@ -8,8 +8,6 @@ import re
 
 try:
     from docx import Document
-    from docx.text.paragraph import Paragraph
-    from docx.oxml.text.paragraph import CT_P
     DOCX_AVAILABLE = True
 except ImportError:
     DOCX_AVAILABLE = False
@@ -37,111 +35,140 @@ class DocxImporter:
         doc = Document(file_path)
 
         # Parse document structure with proper formatting
-        structure = self._parse_structure_with_formatting(doc)
+        chapters_data = self._parse_document(doc)
 
         # Create database entries
         parts_count = 0
         chapters_count = 0
         scenes_count = 0
 
-        current_part = None
-        current_chapter = None
-        chapter_order = 0
-        scene_order = 0
+        for chapter_data in chapters_data:
+            # Create chapter
+            chapter = Chapter(
+                name=chapter_data['title'],
+                summary='',
+                parent_id=None,
+                order=chapters_count
+            )
+            db_manager.save_item(project_id, chapter)
+            chapters_count += 1
 
-        for item in structure:
-            if item['type'] == 'chapter':
-                # Create chapter
-                chapter = Chapter(
-                    name=item['title'],
-                    summary=item.get('summary', ''),
-                    parent_id=current_part.id if current_part else None,
-                    order=chapter_order
+            # Create scenes for this chapter
+            for scene_index, scene_data in enumerate(chapter_data['scenes']):
+                scene = Scene(
+                    name=scene_data['title'],
+                    content=scene_data['content'],
+                    parent_id=chapter.id,
+                    order=scene_index,
+                    word_count=self._count_words_in_html(scene_data['content'])
                 )
-                db_manager.save_item(project_id, chapter)
-                current_chapter = chapter
-                chapters_count += 1
-                chapter_order += 1
-                scene_order = 0
-
-            elif item['type'] == 'scene':
-                # Create scene - ONLY if we have a chapter
-                if current_chapter:
-                    scene = Scene(
-                        name=item['title'],
-                        content=item['content'],
-                        parent_id=current_chapter.id,
-                        order=scene_order,
-                        word_count=self._count_words_in_html(item['content'])
-                    )
-                    db_manager.save_item(project_id, scene)
-                    scenes_count += 1
-                    scene_order += 1
+                db_manager.save_item(project_id, scene)
+                scenes_count += 1
 
         return parts_count, chapters_count, scenes_count
 
     def _count_words_in_html(self, html: str) -> int:
         """Count words in HTML content"""
         # Strip HTML tags
-        import re
         text = re.sub(r'<[^>]+>', ' ', html)
         words = [w for w in text.split() if w]
         return len(words)
 
-    def _parse_structure_with_formatting(self, doc: Document) -> List[Dict]:
+    def _parse_document(self, doc: Document) -> List[Dict]:
         """
-        Parse document preserving formatting as HTML
+        Parse document into chapters with scenes
+
+        Rules:
+        - Heading 1 = Chapter
+        - Heading 2/3 = Scene within chapter
+        - Scene breaks (***) = Split into multiple scenes
+        - Default = One scene per chapter
         """
-        structure = []
+        chapters = []
         current_chapter = None
+        current_scene_title = None
         current_paragraphs = []
-        chapter_number = 0
-        skip_first_heading = True  # Skip title
+        skip_first_heading = True
 
         for para in doc.paragraphs:
-            # Check if it's Heading 1 (Chapter)
-            if para.style.name == 'Heading 1':
-                # Skip the first heading (assumed to be title)
+            style = para.style.name
+            text = para.text.strip()
+
+            if style == 'Heading 1':
+                # Skip first heading (book title)
                 if skip_first_heading:
                     skip_first_heading = False
                     continue
 
-                # Save previous chapter
-                if current_chapter and current_paragraphs:
-                    content_html = self._paragraphs_to_html(current_paragraphs)
-                    structure.append({
-                        'type': 'chapter',
-                        'title': current_chapter,
-                        'summary': '',
-                        'content': content_html
-                    })
-                    current_paragraphs = []
+                # Save previous scene and chapter
+                if current_chapter:
+                    self._save_scene(current_chapter, current_scene_title, current_paragraphs)
+                    chapters.append(current_chapter)
 
                 # Start new chapter
-                current_chapter = para.text.strip()
-                chapter_number += 1
+                current_chapter = {
+                    'title': text,
+                    'scenes': []
+                }
+                current_scene_title = None
+                current_paragraphs = []
 
-            elif para.text.strip():
-                # Regular content - preserve formatting
+            elif style in ['Heading 2', 'Heading 3']:
+                # Heading 2/3 = explicit scene marker
+
+                # Create chapter if needed
                 if not current_chapter:
-                    # No chapter yet, create default
-                    current_chapter = "Chapter 1"
-                    chapter_number = 1
+                    current_chapter = {
+                        'title': 'Chapter 1',
+                        'scenes': []
+                    }
+
+                # Save previous scene
+                if current_scene_title or current_paragraphs:
+                    self._save_scene(current_chapter, current_scene_title, current_paragraphs)
+
+                # Start new scene with this heading as title
+                current_scene_title = text
+                current_paragraphs = []
+
+            elif text:
+                # Regular paragraph
+
+                # Create chapter if needed
+                if not current_chapter:
+                    current_chapter = {
+                        'title': 'Chapter 1',
+                        'scenes': []
+                    }
 
                 current_paragraphs.append(para)
 
-        # Add final chapter
-        if current_chapter and current_paragraphs:
-            content_html = self._paragraphs_to_html(current_paragraphs)
-            structure.append({
-                'type': 'chapter',
-                'title': current_chapter,
-                'summary': '',
-                'content': content_html
-            })
+        # Save final scene and chapter
+        if current_chapter:
+            self._save_scene(current_chapter, current_scene_title, current_paragraphs)
+            chapters.append(current_chapter)
 
-        # Convert chapters to chapter + scene structure
-        return self._chapters_to_scenes(structure)
+        # Process scene breaks
+        return self._process_scene_breaks(chapters)
+
+    def _save_scene(self, chapter: Dict, scene_title: str, paragraphs: List):
+        """Save accumulated paragraphs as a scene"""
+        if not paragraphs:
+            return
+
+        content_html = self._paragraphs_to_html(paragraphs)
+
+        # Generate scene title if not provided
+        if not scene_title:
+            scene_number = len(chapter['scenes']) + 1
+            scene_title = f"{chapter['title']} - Scene {scene_number}"
+
+        chapter['scenes'].append({
+            'title': scene_title,
+            'content': content_html
+        })
+
+        paragraphs.clear()
 
     def _paragraphs_to_html(self, paragraphs: List) -> str:
         """Convert paragraphs to HTML preserving formatting and spacing"""
@@ -175,36 +202,41 @@ class DocxImporter:
 
         return '\n'.join(html_parts)
 
-    def _chapters_to_scenes(self, chapters: List[Dict]) -> List[Dict]:
-        """Convert chapter structure to chapter + scenes"""
-        result = []
-
+    def _process_scene_breaks(self, chapters: List[Dict]) -> List[Dict]:
+        """
+        Process scene break markers (***) to split scenes
+        """
         for chapter in chapters:
-            # Add chapter header (no content)
-            result.append({
-                'type': 'chapter',
-                'title': chapter['title'],
-                'summary': chapter.get('summary', '')
-            })
+            new_scenes = []
 
-            # Check for scene breaks in content
-            content = chapter['content']
-            scenes = self._split_content_by_breaks(content)
+            for scene in chapter['scenes']:
+                content = scene['content']
 
-            # Add scenes under this chapter
-            for i, scene_content in enumerate(scenes, 1):
-                if scene_content.strip():  # Only add non-empty scenes
-                    result.append({
-                        'type': 'scene',
-                        'title': f"{chapter['title']} - Scene {i}",
-                        'content': scene_content
-                    })
+                # Check for scene break markers
+                split_scenes = self._split_by_scene_breaks(content)
 
-        return result
+                if len(split_scenes) > 1:
+                    # Multiple scenes found - number them
+                    base_title = scene['title']
+                    # Remove existing " - Scene X" to avoid double numbering
+                    if ' - Scene ' in base_title:
+                        base_title = base_title.rsplit(' - Scene ', 1)[0]
 
-    def _split_content_by_breaks(self, content: str) -> List[str]:
+                    for i, scene_content in enumerate(split_scenes, 1):
+                        new_scenes.append({
+                            'title': f"{base_title} - Scene {i}",
+                            'content': scene_content
+                        })
+                else:
+                    # Single scene - keep as is
+                    new_scenes.append(scene)
+
+            chapter['scenes'] = new_scenes
+
+        return chapters
+
+    def _split_by_scene_breaks(self, content: str) -> List[str]:
         """Split HTML content by scene break markers"""
-        # Look for scene break patterns in HTML
         patterns = [
             r'<p>\s*\*\s*\*\s*\*\s*</p>',
             r'<p>\s*-\s*-\s*-\s*</p>',
@@ -216,7 +248,7 @@ class DocxImporter:
             if len(parts) > 1:
                 return [part.strip() for part in parts if part.strip()]
 
-        # No breaks found - return as single scene
+        # No breaks found
         return [content]
 
     def estimate_structure(self, file_path: str) -> Dict[str, int]:
@@ -227,14 +259,20 @@ class DocxImporter:
             return {'error': 'python-docx not installed'}
 
         doc = Document(file_path)
-        structure = self._parse_structure_with_formatting(doc)
+        chapters = self._parse_document(doc)
+
+        total_scenes = sum(len(ch['scenes']) for ch in chapters)
+        total_words = 0
+
+        for chapter in chapters:
+            for scene in chapter['scenes']:
+                total_words += self._count_words_in_html(scene['content'])
 
         counts = {
-            'parts': len([s for s in structure if s['type'] == 'part']),
-            'chapters': len([s for s in structure if s['type'] == 'chapter']),
-            'scenes': len([s for s in structure if s['type'] == 'scene']),
-            'total_words': sum(self._count_words_in_html(s.get('content', ''))
-                             for s in structure if s['type'] == 'scene')
+            'parts': 0,
+            'chapters': len(chapters),
+            'scenes': total_scenes,
+            'total_words': total_words
         }
 
         return counts

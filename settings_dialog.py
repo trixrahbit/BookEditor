@@ -5,15 +5,14 @@ Settings dialog with modern styling
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QTabWidget,
     QLineEdit, QSpinBox, QCheckBox, QDialogButtonBox, QLabel,
-    QGroupBox, QPushButton, QMessageBox
+    QGroupBox, QPushButton, QMessageBox, QWidget
 )
 from PyQt6.QtCore import Qt, QSettings
-
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.settings = QSettings()
+        self.settings = QSettings("Rabbit Consulting", "Novelist AI")
         self.init_ui()
         self.load_settings()
         self.apply_modern_style()
@@ -36,15 +35,15 @@ class SettingsDialog(QDialog):
 
         # Azure OpenAI tab
         azure_tab = self.create_azure_tab()
-        tabs.addTab(azure_tab, "🤖 Azure OpenAI")
+        tabs.addTab(azure_tab, "Azure OpenAI")
 
         # Editor tab
         editor_tab = self.create_editor_tab()
-        tabs.addTab(editor_tab, "✏️ Editor")
+        tabs.addTab(editor_tab, "Editor")
 
         # AI Analysis tab
         ai_tab = self.create_ai_tab()
-        tabs.addTab(ai_tab, "🧠 AI Analysis")
+        tabs.addTab(ai_tab, "AI Analysis")
 
         layout.addWidget(tabs)
 
@@ -185,10 +184,11 @@ class SettingsDialog(QDialog):
 
     def save_settings(self):
         """Save settings to QSettings"""
-        self.settings.setValue("azure/api_key", self.azure_api_key_edit.text())
-        self.settings.setValue("azure/endpoint", self.azure_endpoint_edit.text())
-        self.settings.setValue("azure/api_version", self.azure_api_version_edit.text())
-        self.settings.setValue("azure/deployment", self.azure_deployment_edit.text())
+        # Strip all values to remove whitespace/newlines
+        self.settings.setValue("azure/api_key", self.azure_api_key_edit.text().strip())
+        self.settings.setValue("azure/endpoint", self.azure_endpoint_edit.text().strip())
+        self.settings.setValue("azure/api_version", self.azure_api_version_edit.text().strip())
+        self.settings.setValue("azure/deployment", self.azure_deployment_edit.text().strip())
 
         self.settings.setValue("editor/autosave_interval", self.autosave_spin.value())
         self.settings.setValue("editor/font_size", self.font_size_spin.value())
@@ -201,6 +201,11 @@ class SettingsDialog(QDialog):
     def save_and_accept(self):
         """Save settings and close"""
         self.save_settings()
+
+        # Refresh AI manager with new settings
+        from ai_manager import ai_manager
+        ai_manager.refresh_client()
+
         self.accept()
 
     def test_azure_connection(self):
@@ -212,15 +217,38 @@ class SettingsDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "Missing Information",
-                "Please enter both API key and endpoint."
+                "Please enter both API key and endpoint before testing."
             )
             return
 
-        QMessageBox.information(
-            self,
-            "Connection Test",
-            "Connection test will be implemented with AI integration."
-        )
+        # Save settings first
+        self.settings.setValue("azure/api_key", api_key)
+        self.settings.setValue("azure/endpoint", endpoint)
+        self.settings.setValue("azure/api_version", self.azure_api_version_edit.text())
+        self.settings.setValue("azure/deployment", self.azure_deployment_edit.text())
+
+        # Force sync settings to disk
+        self.settings.sync()
+
+        # Refresh AI manager with new settings
+        from ai_manager import ai_manager
+        ai_manager.refresh_client()
+
+        # Test connection
+        success, message = ai_manager.test_connection()
+
+        if success:
+            QMessageBox.information(
+                self,
+                "Connection Successful",
+                f"{message}\n\nYour Azure OpenAI is configured correctly!"
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Connection Failed",
+                f"{message}\n\nPlease check your credentials."
+            )
 
     def apply_modern_style(self):
         """Apply modern styling"""
@@ -228,14 +256,14 @@ class SettingsDialog(QDialog):
             QDialog {
                 background: white;
             }
-
+            
             QLabel#settingsHeader {
                 font-size: 18pt;
                 font-weight: bold;
                 color: #212529;
                 padding: 15px;
             }
-
+            
             QLabel#infoLabel {
                 color: #6c757d;
                 padding: 10px;
@@ -243,13 +271,13 @@ class SettingsDialog(QDialog):
                 border-radius: 6px;
                 margin: 10px 0;
             }
-
+            
             QTabWidget::pane {
                 border: 1px solid #dee2e6;
                 border-radius: 4px;
                 background: white;
             }
-
+            
             QTabBar::tab {
                 padding: 10px 20px;
                 margin-right: 2px;
@@ -259,23 +287,23 @@ class SettingsDialog(QDialog):
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
             }
-
+            
             QTabBar::tab:selected {
                 background: white;
                 border-bottom: 1px solid white;
             }
-
+            
             QLineEdit, QSpinBox {
                 border: 1px solid #ced4da;
                 border-radius: 4px;
                 padding: 8px;
                 background: white;
             }
-
+            
             QLineEdit:focus, QSpinBox:focus {
                 border-color: #667eea;
             }
-
+            
             QPushButton#testButton {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #17a2b8, stop:1 #138496);
@@ -285,7 +313,7 @@ class SettingsDialog(QDialog):
                 padding: 10px 20px;
                 font-weight: bold;
             }
-
+            
             QPushButton#testButton:hover {
                 background: #117a8b;
             }

@@ -11,9 +11,9 @@ from PyQt6.QtGui import QAction, QIcon
 from models.project import ItemType, Scene, Chapter, Part, Character, Location, PlotThread
 from db_manager import DatabaseManager
 
-
 class ProjectTreeWidget(QTreeWidget):
     item_selected = pyqtSignal(str)  # Emits item ID
+    ai_fill_requested = pyqtSignal(str)  # Emits scene_id for AI analysis
 
     def __init__(self):
         super().__init__()
@@ -46,23 +46,23 @@ class ProjectTreeWidget(QTreeWidget):
                 font-size: 11pt;
                 outline: none;
             }
-
+            
             QTreeWidget::item {
                 padding: 8px 5px;
                 border-bottom: 1px solid #f0f0f0;
             }
-
+            
             QTreeWidget::item:hover {
                 background: #f8f9fa;
             }
-
+            
             QTreeWidget::item:selected {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #667eea, stop:1 #764ba2);
                 color: white;
                 border-radius: 4px;
             }
-
+            
             QTreeWidget::branch {
                 background: white;
             }
@@ -138,8 +138,8 @@ class ProjectTreeWidget(QTreeWidget):
             # Load scenes in this chapter
             self._load_scenes(chapter_item, chapter.id)
 
-        # Load top-level scenes (no chapter/part)
-        self._load_scenes(parent_widget, None)
+        # NOTE: We do NOT load orphan scenes (parent_id=None) at root level
+        # All scenes should be under a chapter
 
     def _load_scenes(self, parent_widget: QTreeWidgetItem, parent_id: str):
         """Load scenes under a parent"""
@@ -213,7 +213,18 @@ class ProjectTreeWidget(QTreeWidget):
             menu.addAction(add_plot_action)
 
         else:
-            # Regular item - show edit/delete
+            # Regular item - check what type it is
+            db_item = self.db_manager.load_item(item_id)
+
+            if db_item:
+                # AI features for scenes
+                if db_item.item_type == ItemType.SCENE:
+                    ai_fill_action = QAction("🤖 AI: Auto-fill Scene Properties", self)
+                    ai_fill_action.triggered.connect(lambda: self.ai_fill_requested.emit(item_id))
+                    menu.addAction(ai_fill_action)
+                    menu.addSeparator()
+
+            # Regular edit/delete actions
             rename_action = QAction("Rename", self)
             rename_action.triggered.connect(lambda: self.rename_item(item))
             menu.addAction(rename_action)

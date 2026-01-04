@@ -15,6 +15,7 @@ from db_manager import DatabaseManager
 class EditorWidget(QWidget):
     content_changed = pyqtSignal()
     analyze_requested = pyqtSignal(str)  # Emits item_id for analysis
+    rewrite_requested = pyqtSignal(str)  # Emits selected text for rewriting
 
     def __init__(self):
         super().__init__()
@@ -63,6 +64,8 @@ class EditorWidget(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setObjectName("mainEditor")
         self.text_edit.setAcceptRichText(True)
+        self.text_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.text_edit.customContextMenuRequested.connect(self.show_editor_context_menu)
 
         # Set a nice writing font
         font = QFont("Georgia", 12)
@@ -502,6 +505,43 @@ class EditorWidget(QWidget):
     def paste(self):
         """Paste text"""
         self.text_edit.paste()
+
+    def show_editor_context_menu(self, position):
+        """Show context menu in editor"""
+        try:
+            from PyQt6.QtWidgets import QMenu
+
+            menu = self.text_edit.createStandardContextMenu()
+            cursor = self.text_edit.textCursor()
+
+            if cursor.hasSelection():
+                menu.addSeparator()
+
+                ai_rewrite_action = QAction("🤖 Rewrite with AI", self)
+                ai_rewrite_action.triggered.connect(self.request_ai_rewrite)
+                menu.addAction(ai_rewrite_action)
+
+            menu.exec(self.text_edit.mapToGlobal(position))
+        except Exception as e:
+            print(f"Error showing context menu: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def request_ai_rewrite(self):
+        """Request AI rewrite of selected text"""
+        try:
+            print("request_ai_rewrite called")
+            cursor = self.text_edit.textCursor()
+            if cursor.hasSelection():
+                selected_text = cursor.selectedText()
+                print(f"Emitting rewrite_requested with {len(selected_text)} chars")
+                self.rewrite_requested.emit(selected_text)
+            else:
+                print("No selection")
+        except Exception as e:
+            print(f"Error in request_ai_rewrite: {e}")
+            import traceback
+            traceback.print_exc()
 
     def apply_modern_style(self):
         """Apply modern styling to the editor"""

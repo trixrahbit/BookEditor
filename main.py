@@ -9,10 +9,12 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox, QFileDialog, QApplication
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 from pathlib import Path
 
+from ai_integration import AIFeatures
+from ai_manager import ai_manager
 from db_manager import DatabaseManager
 from editor_widget import EditorWidget
 from metadata_panel import MetadataPanel
@@ -23,13 +25,16 @@ from settings_dialog import SettingsDialog
 from story_insights_dialog import StoryInsightsDialog, AnalysisWorker
 from docx_importer import DocxImporter
 from analyzer import AIAnalyzer
+from story_extractor import StoryExtractor
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.settings = QSettings()
+        self.settings = QSettings("Rabbit Consulting", "Novelist AI")
         self.db_manager: DatabaseManager = None
+        self.ai_integration = None
+        self.story_extractor = None
         self.current_project: Project = None
 
         self.init_ui()
@@ -58,6 +63,8 @@ class MainWindow(QMainWindow):
         # Center panel - Editor
         self.editor = EditorWidget()
         self.editor.content_changed.connect(self.on_content_changed)
+        self.editor.rewrite_requested.connect(self.on_ai_rewrite_requested)
+        self.project_tree.ai_fill_requested.connect(self.on_ai_fill_scene)
 
         # Right panel - Metadata
         self.metadata_panel = MetadataPanel()
@@ -205,26 +212,36 @@ class MainWindow(QMainWindow):
         # AI menu
         ai_menu = menubar.addMenu("&AI Analysis")
 
-        analyze_character_action = QAction("Analyze &Characters", self)
-        analyze_character_action.triggered.connect(lambda: self.run_ai_analysis("characters"))
+        analyze_character_action = QAction("📝 Extract &Characters from Text", self)
+        analyze_character_action.triggered.connect(self.extract_characters)
         ai_menu.addAction(analyze_character_action)
 
-        analyze_plot_action = QAction("Analyze &Plot", self)
-        analyze_plot_action.triggered.connect(lambda: self.run_ai_analysis("plot"))
+        analyze_location_action = QAction("📍 Extract &Locations from Text", self)
+        analyze_location_action.triggered.connect(self.extract_locations)
+        ai_menu.addAction(analyze_location_action)
+
+        analyze_plot_action = QAction("🎭 Analyze &Plot Structure", self)
+        analyze_plot_action.triggered.connect(self.analyze_plot)
         ai_menu.addAction(analyze_plot_action)
 
-        analyze_timeline_action = QAction("Analyze &Timeline", self)
-        analyze_timeline_action.triggered.connect(lambda: self.run_ai_analysis("timeline"))
+        analyze_timeline_action = QAction("⏰ Analyze &Timeline", self)
+        analyze_timeline_action.triggered.connect(self.analyze_timeline)
         ai_menu.addAction(analyze_timeline_action)
 
-        analyze_style_action = QAction("Analyze Writing &Style", self)
-        analyze_style_action.triggered.connect(lambda: self.run_ai_analysis("style"))
+        analyze_style_action = QAction("✍️ Analyze Writing &Style", self)
+        analyze_style_action.triggered.connect(self.analyze_writing_style)
         ai_menu.addAction(analyze_style_action)
 
         ai_menu.addSeparator()
 
+        check_consistency_action = QAction("🔍 Check Story Consistency", self)
+        check_consistency_action.triggered.connect(self.check_story_consistency)
+        ai_menu.addAction(check_consistency_action)
+
+        ai_menu.addSeparator()
+
         full_analysis_action = QAction("&Full Analysis Report", self)
-        full_analysis_action.triggered.connect(lambda: self.run_ai_analysis("full"))
+        full_analysis_action.triggered.connect(lambda: self.run_full_ai_analysis("full"))
         ai_menu.addAction(full_analysis_action)
 
         ai_menu.addSeparator()
@@ -232,7 +249,11 @@ class MainWindow(QMainWindow):
         story_insights_action = QAction("📊 &Story Insights (Comprehensive)", self)
         story_insights_action.triggered.connect(self.show_story_insights)
         ai_menu.addAction(story_insights_action)
+        ai_menu.addSeparator()
 
+        view_insights_action = QAction("📊 View Story Insights", self)
+        view_insights_action.triggered.connect(self.view_story_insights)
+        ai_menu.addAction(view_insights_action)
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
@@ -285,6 +306,10 @@ class MainWindow(QMainWindow):
                 self.db_manager = DatabaseManager(file_path)
                 self.db_manager.save_project(self.current_project)
 
+                # Initialize AI integration and story extractor
+                self.ai_integration = AIFeatures(self, self.db_manager, self.current_project.id)
+                self.story_extractor = StoryExtractor(self, self.db_manager, self.current_project.id)
+
                 # Update UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
@@ -314,7 +339,15 @@ class MainWindow(QMainWindow):
             projects = self.db_manager.list_projects()
 
             if projects:
-                self.current_project = projects[0]
+                self.current_project = projects[0]  # SET PROJECT FIRST
+
+                # NOW initialize AI integration (after current_project exists)
+                self.ai_integration = AIFeatures(self, self.db_manager, self.current_project.id)
+
+                # Initialize story extractor
+                self.story_extractor = StoryExtractor(self, self.db_manager, self.current_project.id)
+
+                # Load UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
                 self.statusBar.showMessage(f"Opened project: {self.current_project.name}")
@@ -508,6 +541,7 @@ class MainWindow(QMainWindow):
                 f"Failed to import document:\n\n{str(e)}"
             )
 
+
     def restore_settings(self):
         """Restore window settings"""
         geometry = self.settings.value("geometry")
@@ -535,6 +569,144 @@ class MainWindow(QMainWindow):
 
         event.accept()
 
+    def on_ai_rewrite_requested(self, text: str):
+        """Handle AI rewrite request from editor"""
+        print(f"on_ai_rewrite_requested called with {len(text)} chars")
+
+        if not self.current_project:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No AI", "AI integration not initialized")
+            return
+
+        def replace_text(new_text):
+            """Callback to replace the selected text"""
+            print(f"Replacing with {len(new_text)} chars")
+            cursor = self.editor.text_edit.textCursor()
+            if cursor.hasSelection():
+                cursor.insertText(new_text)
+                print("Text replaced")
+
+        print("Calling ai_integration.rewrite_text...")
+        self.ai_integration.rewrite_text(text, replace_text)
+
+    def check_story_consistency(self):
+        """Check story for consistency issues"""
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        self.ai_integration.check_consistency()
+
+    def on_ai_fill_scene(self, scene_id: str):
+        """Handle AI fill scene properties request"""
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        def refresh():
+            # Refresh the metadata panel if this scene is currently selected
+            item = self.db_manager.load_item(scene_id)
+            if item:
+                self.metadata_panel.load_item(item, self.db_manager, self.current_project.id)
+
+        self.ai_integration.fill_scene_properties(scene_id, refresh)
+
+    def run_full_ai_analysis(self, analysis_type: str):
+        """Run a full AI analysis of specified type"""
+        if not self.current_project or not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "No project is currently open")
+            return
+
+        if not self.ai_integration.check_configured():
+            return
+
+        # Show that analysis is coming soon but configured
+        QMessageBox.information(
+            self,
+            "AI Analysis",
+            f"{analysis_type.title()} analysis is configured!\n\n"
+            f"Full analysis features are being enhanced.\n"
+            f"For now, try:\n"
+            f"• Right-click on scenes to auto-fill properties\n"
+            f"• Select text and right-click to rewrite with AI\n"
+            f"• Use Check Story Consistency"
+        )
+
+    def extract_characters(self):
+        """Extract characters from manuscript automatically"""
+        if not self.story_extractor:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not ai_manager.is_configured():
+            QMessageBox.warning(
+                self,
+                "AI Not Configured",
+                "Please configure Azure OpenAI in Settings first"
+            )
+            return
+
+        self.story_extractor.extract_characters()
+
+    def extract_locations(self):
+        """Extract locations from manuscript automatically"""
+        if not self.story_extractor:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not ai_manager.is_configured():
+            QMessageBox.warning(
+                self,
+                "AI Not Configured",
+                "Please configure Azure OpenAI in Settings first"
+            )
+            return
+
+        self.story_extractor.extract_locations()
+
+    def analyze_plot(self):
+        """Analyze plot structure chapter by chapter"""
+        if not self.story_extractor:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not ai_manager.is_configured():
+            QMessageBox.warning(
+                self,
+                "AI Not Configured",
+                "Please configure Azure OpenAI in Settings first"
+            )
+            return
+
+        self.story_extractor.analyze_plot()
+
+
+    def analyze_timeline(self):
+        """Analyze story timeline"""
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        self.ai_integration.analyze_timeline()
+
+    def analyze_writing_style(self):
+        """Analyze writing style"""
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        self.ai_integration.analyze_writing_style()
+
+    def view_story_insights(self):
+        """View Story Insights dashboard"""
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        self.ai_integration.show_story_insights()
 
 def main():
     """Main entry point for the application"""

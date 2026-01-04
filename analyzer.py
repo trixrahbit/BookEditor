@@ -8,7 +8,7 @@ from PyQt6.QtCore import QSettings
 import json
 
 try:
-    from openai import AzureOpenAI
+    from openai import AzureOpenAI, OpenAI
 
     OPENAI_AVAILABLE = True
 except ImportError:
@@ -38,9 +38,12 @@ class AIAnalyzer:
         if not OPENAI_AVAILABLE:
             return
 
-        api_key = self.settings.value("azure/api_key", "")
-        endpoint = self.settings.value("azure/endpoint", "")
-        api_version = self.settings.value("azure/api_version", "2024-02-15-preview")
+        api_key = (self.settings.value("azure/api_key", "", type=str) or "").strip()
+        endpoint = (self.settings.value("azure/endpoint", "", type=str) or "").strip()
+        api_version = (self.settings.value("azure/api_version", "2024-12-01-preview", type=str) or "").strip()
+
+        # Normalize endpoint: keep it as the resource root (no /openai/..., no query)
+        endpoint = endpoint.rstrip("/")
 
         if api_key and endpoint:
             try:
@@ -50,6 +53,7 @@ class AIAnalyzer:
                     api_version=api_version
                 )
             except Exception as e:
+                self.client = None
                 print(f"Error initializing Azure OpenAI client: {e}")
 
     def is_configured(self) -> bool:
@@ -448,9 +452,12 @@ Provide:
 
     def _call_api(self, prompt: str) -> str:
         """Make API call to Azure OpenAI"""
-        deployment = self.settings.value("azure/deployment", "gpt-4")
+        deployment = (self.settings.value("azure/deployment", "", type=str) or "").strip()
+        if not deployment:
+            raise RuntimeError("Missing Azure deployment name (must be your Azure *deployment* name).")
+
         temperature = float(self.settings.value("ai/temperature", 70)) / 100.0
-        max_tokens = int(self.settings.value("ai/max_tokens", 2000))
+        max_out = int(self.settings.value("ai/max_tokens", 2000))  # treat UI value as output tokens
 
         response = self.client.chat.completions.create(
             model=deployment,
@@ -459,7 +466,7 @@ Provide:
                 {"role": "user", "content": prompt}
             ],
             temperature=temperature,
-            max_tokens=max_tokens
+            max_completion_tokens=max_out,  # <-- important for your api_version/doc
         )
 
         return response.choices[0].message.content
@@ -485,19 +492,21 @@ Provide:
         )
 
     def test_connection(self) -> tuple[bool, str]:
-        """Test the Azure OpenAI connection"""
         if not OPENAI_AVAILABLE:
             return False, "OpenAI library not installed"
-
         if not self.is_configured():
             return False, "Not configured"
 
+        deployment = (self.settings.value("azure/deployment", "", type=str) or "").strip()
+        if not deployment:
+            return False, "Missing Deployment name (must match your Azure deployment name)."
+
         try:
-            response = self.client.chat.completions.create(
-                model=self.settings.value("azure/deployment", "gpt-4"),
+            self.client.chat.completions.create(
+                model=deployment,
                 messages=[{"role": "user", "content": "Test"}],
-                max_tokens=10
+                max_completion_tokens=2000,  # <-- not max_tokens
             )
             return True, "Connection successful!"
         except Exception as e:
-            return False, f"Connection failed: {str(e)}"
+            return False, f"Connection failed: {e}"
