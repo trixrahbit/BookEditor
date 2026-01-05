@@ -2,8 +2,7 @@
 Comprehensive Analysis System - Chapter-by-chapter with tracked insights
 """
 
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QPushButton, QLabel, \
-    QScrollArea, QWidget, QHBoxLayout
+from PyQt6.QtWidgets import QMessageBox, QProgressDialog, QDialog, QVBoxLayout, QTextEdit, QPushButton, QLabel, QScrollArea, QWidget, QHBoxLayout
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from PyQt6.QtGui import QFont
 from ai_manager import ai_manager
@@ -48,7 +47,8 @@ class ComprehensiveAnalysisWorker(QThread):
         total_chapters = len(self.chapters)
 
         for idx, chapter in enumerate(self.chapters):
-            chapter_name = chapter.get('name', f'Chapter {idx + 1}')
+            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            print(f"Timeline: Analyzing chapter {idx+1}/{total_chapters}: {chapter_name}")
             self.progress.emit(f"Analyzing timeline in {chapter_name}...", int((idx / total_chapters) * 70))
 
             # Get scenes for this chapter
@@ -58,6 +58,7 @@ class ComprehensiveAnalysisWorker(QThread):
 
             # Build scene text
             scene_text = self._build_scene_text(chapter_scenes)
+            print(f"  → Sending {len(scene_text)} characters from {len(chapter_scenes)} scenes")
 
             # Analyze this chapter
             prompt = f"""Analyze timeline issues in this chapter:
@@ -86,7 +87,7 @@ DETAIL: [Explanation]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a timeline continuity expert.",
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=16000
                 )
 
                 chapter_analyses.append({
@@ -95,7 +96,8 @@ DETAIL: [Explanation]
                 })
 
                 # Parse issues
-                issues = self._parse_issues(response, chapter_name, 'timeline')
+                issues = self._parse_issues(response, chapter_name, 'timeline', chapter_scenes)
+
                 all_issues.extend(issues)
 
             except Exception as e:
@@ -123,7 +125,8 @@ DETAIL: [Explanation]
         character_names = set()
 
         for idx, chapter in enumerate(self.chapters):
-            chapter_name = chapter.get('name', f'Chapter {idx + 1}')
+            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            print(f"Consistency: Analyzing chapter {idx+1}/{total_chapters}: {chapter_name}")
             self.progress.emit(f"Checking consistency in {chapter_name}...", int((idx / total_chapters) * 70))
 
             chapter_scenes = [s for s in self.scenes if s.get('parent_id') == chapter.get('id')]
@@ -157,7 +160,7 @@ DETAIL: [Explanation]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a story consistency expert.",
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=16000
                 )
 
                 chapter_analyses.append({
@@ -165,7 +168,7 @@ DETAIL: [Explanation]
                     'analysis': response
                 })
 
-                issues = self._parse_issues(response, chapter_name, 'consistency')
+                issues = self._parse_issues(response, chapter_name, 'consistency', chapter_scenes)
                 all_issues.extend(issues)
 
             except Exception as e:
@@ -188,9 +191,10 @@ DETAIL: [Explanation]
         all_issues = []
         total_chapters = len(self.chapters)
 
-        for idx, chapter in enumerate(self.chapters[:10]):  # Limit to 10 chapters for style
-            chapter_name = chapter.get('name', f'Chapter {idx + 1}')
-            self.progress.emit(f"Analyzing style in {chapter_name}...", int((idx / min(10, total_chapters)) * 70))
+        for idx, chapter in enumerate(self.chapters):  # Analyze ALL chapters
+            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            print(f"Style: Analyzing chapter {idx+1}/{total_chapters}: {chapter_name}")
+            self.progress.emit(f"Analyzing style in {chapter_name}...", int((idx / total_chapters) * 70))
 
             chapter_scenes = [s for s in self.scenes if s.get('parent_id') == chapter.get('id')]
             if not chapter_scenes:
@@ -201,7 +205,7 @@ DETAIL: [Explanation]
             for scene in chapter_scenes[:3]:  # First 3 scenes
                 content = scene.get('content', '')
                 text = re.sub(r'<[^>]+>', ' ', content)
-                prose_samples.append(text[:800])
+                prose_samples.append(text[:4000])
 
             sample_text = "\n\n---\n\n".join(prose_samples)
 
@@ -231,7 +235,7 @@ DETAIL: [Specific example or explanation]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a professional writing coach.",
                     temperature=0.4,
-                    max_tokens=1000
+                    max_tokens=2000
                 )
 
                 chapter_analyses.append({
@@ -257,24 +261,40 @@ DETAIL: [Specific example or explanation]
         }
 
     def _build_scene_text(self, scenes: List[Dict]) -> str:
-        """Build readable scene text for analysis"""
+        """Build readable scene text for analysis - uses FULL content"""
         scene_parts = []
+        MAX_CHARS_PER_SCENE = 20000
         for scene in scenes:
             name = scene.get('name', 'Untitled')
-            summary = scene.get('summary', '')
-            if not summary:
-                content = scene.get('content', '')
-                text = re.sub(r'<[^>]+>', ' ', content)
-                summary = text[:400]
 
-            scene_parts.append(f"SCENE: {name}\n{summary}")
+            # ALWAYS use full content for analysis, not summaries
+            content = scene.get('content', '')
+            if content:
+                # Strip HTML but keep full text
+                text = re.sub(r'<[^>]+>', ' ', content)
+                text = re.sub(r'\s+', ' ', text).strip()
+                # Use up to 5000 characters per scene for thorough analysis
+                text = text[:MAX_CHARS_PER_SCENE] if text else "No content"
+            else:
+                # Fallback to summary only if there's literally no content
+                text = scene.get('summary', 'No content')
+
+            scene_parts.append(f"SCENE: {name}\n{text}")
 
         return "\n\n".join(scene_parts)
 
-    def _parse_issues(self, response: str, chapter_name: str, issue_type: str) -> List[Dict]:
-        """Parse AI response into structured issues"""
+    def _parse_issues(self, response: str, chapter_name: str, issue_type: str, chapter_scenes: List[Dict]) -> List[
+        Dict]:
+        """Parse AI response into structured issues and attach scene_id when possible"""
         issues = []
         issue_blocks = response.split('---')
+
+        # Build fast lookup: scene name -> scene dict
+        scenes_by_name = {}
+        for s in chapter_scenes or []:
+            name = (s.get("name") or "").strip()
+            if name:
+                scenes_by_name[name.lower()] = s  # case-insensitive
 
         for block in issue_blocks:
             if not block.strip():
@@ -301,8 +321,25 @@ DETAIL: [Specific example or explanation]
                 elif line.startswith('DETAIL:'):
                     issue_data['detail'] = line.split(':', 1)[1].strip()
 
-            if issue_data['issue']:
-                issues.append(issue_data)
+            if not issue_data['issue']:
+                continue
+
+            # ✅ Attach scene_id for timeline/consistency when LOCATION names a single scene
+            location = (issue_data.get("location") or "").strip()
+            if issue_type in {"timeline", "consistency"}:
+                # Don't assign scene_id for clearly multi-scene locations
+                multi_markers = {"multiple scenes", "throughout chapter", "unknown", "entire chapter"}
+                if location and location.lower() not in multi_markers:
+                    scene = scenes_by_name.get(location.lower())
+                    if scene and scene.get("id"):
+                        issue_data["scene_id"] = scene["id"]
+                    else:
+                        # If AI slightly mismatches names, you can optionally add a fallback here later
+                        issue_data["scene_id"] = None
+                else:
+                    issue_data["scene_id"] = None
+
+            issues.append(issue_data)
 
         return issues
 
@@ -344,112 +381,57 @@ DETAIL: [Specific example or explanation]
 
         return observations
 
-    def _compile_timeline_report(self, chapter_analyses: List[Dict[str, Any]], issues: List[Any]) -> str:
-        """Compile final timeline report from all chapters (defensive against bad issue shapes)."""
+    def _compile_timeline_report(self, chapter_analyses: List[Dict], issues: List[Dict]) -> str:
+        """Compile final timeline report from all chapters"""
+        if not issues:
+            return "TIMELINE ANALYSIS SUMMARY\n\nNo timeline issues found! ✓"
 
-        # Keep only dict-like issues
-        issues_dicts: List[Dict[str, Any]] = [i for i in (issues or []) if isinstance(i, dict)]
+        critical = [i for i in issues if i.get('severity') == 'Critical']
+        major = [i for i in issues if i.get('severity') == 'Major']
+        minor = [i for i in issues if i.get('severity') == 'Minor']
 
-        def sev(i: Dict[str, Any]) -> str:
-            return str(i.get("severity", "Minor")).strip() or "Minor"
+        report = f"""TIMELINE ANALYSIS SUMMARY
 
-        critical = [i for i in issues_dicts if sev(i).lower() == "critical"]
-        major = [i for i in issues_dicts if sev(i).lower() == "major"]
-        minor = [i for i in issues_dicts if sev(i).lower() == "minor"]
+Total Issues Found: {len(issues)}
+- Critical: {len(critical)}
+- Major: {len(major)}
+- Minor: {len(minor)}
 
-        # Anything with unknown severity → treat as Minor (or put in separate bucket if you prefer)
-        unknown = [i for i in issues_dicts if sev(i).lower() not in {"critical", "major", "minor"}]
-        minor.extend(unknown)
+CRITICAL ISSUES:
+"""
+        for issue in critical:
+            report += f"\n• {issue['issue']} ({issue['chapter']} - {issue['location']})\n  {issue['detail']}\n"
 
-        def fmt_issue(i: Dict[str, Any], include_detail: bool) -> str:
-            title = str(i.get("issue", "Unspecified issue")).strip()
-            chapter = str(i.get("chapter", "Unknown chapter")).strip()
-            location = str(i.get("location", "Unknown location")).strip()
-            detail = str(i.get("detail", "")).strip()
-
-            line = f"• {title} ({chapter} - {location})"
-            if include_detail and detail:
-                line += f"\n  {detail}"
-            return line
-
-        report = (
-            "TIMELINE ANALYSIS SUMMARY\n\n"
-            f"Total Issues Found: {len(issues_dicts)}\n"
-            f"- Critical: {len(critical)}\n"
-            f"- Major: {len(major)}\n"
-            f"- Minor: {len(minor)}\n\n"
-            "CRITICAL ISSUES:\n"
-        )
-
-        if critical:
-            report += "\n" + "\n".join(fmt_issue(i, include_detail=True) for i in critical) + "\n"
-        else:
-            report += "• None\n"
-
-        report += "\nMAJOR ISSUES:\n"
-        if major:
-            report += "\n" + "\n".join(fmt_issue(i, include_detail=False) for i in major[:10]) + "\n"
-        else:
-            report += "• None\n"
-
-        # Optional: include minor count summary without dumping everything
-        report += f"\nMINOR ISSUES: {len(minor)}\n"
-
-        # If input was junky, mention how many were dropped (helps debugging without crashing)
-        dropped = len((issues or [])) - len(issues_dicts)
-        if dropped > 0:
-            report += f"\n(Note: {dropped} non-dict issue entries were ignored.)\n"
+        report += "\n\nMAJOR ISSUES:\n"
+        for issue in major[:10]:
+            report += f"\n• {issue['issue']} ({issue['chapter']} - {issue['location']})\n"
 
         return report
 
+    def _compile_consistency_report(self, chapter_analyses: List[Dict], issues: List[Dict]) -> str:
+        """Compile consistency report"""
+        if not issues:
+            return "CONSISTENCY ANALYSIS SUMMARY\n\nNo consistency issues found! ✓"
 
-    def _compile_consistency_report(
-            self,
-            chapter_analyses: List[Dict[str, Any]],
-            issues: List[Any]
-    ) -> str:
-        """Compile consistency report (defensive against malformed issue entries)."""
+        critical = [i for i in issues if i.get('severity') == 'Critical']
 
-        issues_dicts: List[Dict[str, Any]] = [i for i in (issues or []) if isinstance(i, dict)]
+        report = f"""CONSISTENCY ANALYSIS SUMMARY
 
-        def sev(i: Dict[str, Any]) -> str:
-            return str(i.get("severity", "Minor")).strip() or "Minor"
+Total Issues: {len(issues)}
+Critical Issues: {len(critical)}
 
-        critical = [i for i in issues_dicts if sev(i).lower() == "critical"]
-
-        def fmt_issue(i: Dict[str, Any]) -> str:
-            severity = sev(i)
-            title = str(i.get("issue", "Unspecified issue")).strip()
-            chapter = str(i.get("chapter", "Unknown chapter")).strip()
-            location = str(i.get("location", "Unknown location")).strip()
-            detail = str(i.get("detail", "")).strip()
-
-            block = f"• [{severity}] {title}\n  Location: {chapter} - {location}"
-            if detail:
-                block += f"\n  {detail}"
-            return block
-
-        report = (
-            "CONSISTENCY ANALYSIS SUMMARY\n\n"
-            f"Total Issues: {len(issues_dicts)}\n"
-            f"Critical Issues: {len(critical)}\n\n"
-            "TOP ISSUES:\n"
-        )
-
-        if issues_dicts:
-            report += "\n" + "\n".join(fmt_issue(i) for i in issues_dicts[:15]) + "\n"
-        else:
-            report += "• No issues found.\n"
-
-        dropped = len((issues or [])) - len(issues_dicts)
-        if dropped > 0:
-            report += f"\n(Note: {dropped} malformed issue entries were ignored.)\n"
+TOP ISSUES:
+"""
+        for issue in issues[:15]:
+            report += f"\n• [{issue['severity']}] {issue['issue']}\n  Location: {issue['chapter']} - {issue['location']}\n  {issue['detail']}\n"
 
         return report
-
 
     def _compile_style_report(self, chapter_analyses: List[Dict], observations: List[Dict]) -> str:
         """Compile style report"""
+        if not observations:
+            return "WRITING STYLE ANALYSIS\n\nNo style observations generated."
+
         strengths = [o for o in observations if o.get('is_strength', False)]
         suggestions = [o for o in observations if not o.get('is_strength', False)]
 
@@ -477,10 +459,23 @@ class StoryInsightsDatabase:
         self.db_manager = db_manager
         self.project_id = project_id
 
+    def clear_analysis(self, analysis_type: str):
+        """Clear previous analysis of this type"""
+        import json
+        from pathlib import Path
+
+        insights_file = Path(f".insights_{self.project_id}_{analysis_type}.json")
+        if insights_file.exists():
+            insights_file.unlink()
+            print(f"Cleared previous {analysis_type} analysis")
+
     def save_analysis(self, analysis_data: Dict):
         """Save analysis results with tracked issues"""
         # Store as JSON in project settings or separate table
         analysis_type = analysis_data['type']
+
+        # Clear previous analysis first
+        self.clear_analysis(analysis_type)
 
         # For now, store in memory/file
         # In future, add insights table to database

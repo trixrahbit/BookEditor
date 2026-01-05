@@ -2,12 +2,14 @@
 Enhanced rich text editor widget with AI analysis button
 """
 
+import re
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QToolBar, QPushButton,
     QFontComboBox, QComboBox, QColorDialog
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
-from PyQt6.QtGui import QFont, QAction, QTextCharFormat, QColor, QTextListFormat, QTextCursor
+from PyQt6.QtGui import QFont, QAction, QTextCharFormat, QColor, QTextListFormat, QTextCursor, QTextDocument
 
 from models.project import Scene, ItemType
 from db_manager import DatabaseManager
@@ -238,34 +240,83 @@ class EditorWidget(QWidget):
         # Connect cursor position changed to update toolbar
         self.text_edit.cursorPositionChanged.connect(self.update_format_actions)
 
+    def html_to_plaintext(self, html: str) -> str:
+        """Convert stored HTML to plain text while preserving paragraph breaks."""
+        doc = QTextDocument()
+        doc.setHtml(html or "")
+        text = doc.toPlainText()
+
+        # Normalize NBSP + line endings
+        text = text.replace("\u00a0", " ")
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+        # Collapse excessive blank lines but keep paragraphs
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        # Trim trailing whitespace per line
+        text = "\n".join([ln.rstrip() for ln in text.splitlines()])
+        return text.strip()
+
     def load_item(self, item, db_manager: DatabaseManager, project_id: str):
-        """Load an item into the editor"""
+        """Load an item into the editor.
+
+        - SCENE: editable rich text (HTML)
+        - CHAPTER: read-only combined plaintext view of all scenes in the chapter
+        - Other: read-only/empty
+        """
+        self.current_item = item
         self.db_manager = db_manager
         self.project_id = project_id
 
-        # Only scenes are editable in the main editor
+        # Block signals while loading
+        self.text_edit.blockSignals(True)
+
         if item.item_type == ItemType.SCENE:
-            self.current_item = item
             self.title_label.setText(item.name)
+            self.text_edit.setAcceptRichText(True)
+            self.text_edit.setHtml(item.content or "")
 
-            # Block signals while loading
-            self.text_edit.blockSignals(True)
-            self.text_edit.setHtml(item.content)
-            self.text_edit.blockSignals(False)
-
-            self.update_word_count()
             self.set_enabled(True)
             self.ai_button.setEnabled(True)
-
-            # Start auto-save timer
             self.auto_save_timer.start()
+
+        elif item.item_type == ItemType.CHAPTER:
+            self.title_label.setText(f"{item.name} (chapter view)")
+            self.text_edit.setAcceptRichText(False)
+
+            # Load scenes in this chapter and show as a single combined view
+            try:
+                chapter_scenes = self.db_manager.load_items(
+                    self.project_id,
+                    ItemType.SCENE,
+                    parent_id=item.id
+                )
+            except Exception:
+                chapter_scenes = []
+
+            parts = []
+            for s in chapter_scenes:
+                parts.append(
+                    f"=== {s.name} ===\n\n{self.html_to_plaintext(getattr(s, 'content', '') or '')}"
+                )
+
+            combined = "\n\n".join(parts).strip() if parts else "(No scenes in this chapter)"
+            self.text_edit.setPlainText(combined)
+
+            self.set_enabled(False)  # read-only
+            self.ai_button.setEnabled(True)
+            self.auto_save_timer.stop()
+
         else:
-            self.current_item = None
             self.title_label.setText(f"{item.name} (not editable)")
-            self.text_edit.clear()
+            self.text_edit.setAcceptRichText(False)
+            self.text_edit.setPlainText("")
+
             self.set_enabled(False)
             self.ai_button.setEnabled(False)
             self.auto_save_timer.stop()
+
+        self.text_edit.blockSignals(False)
+        self.update_word_count()
 
     def on_text_changed(self):
         """Handle text changes"""
@@ -480,11 +531,24 @@ class EditorWidget(QWidget):
         self.update_alignment_actions(self.text_edit.alignment())
 
     def set_enabled(self, enabled: bool):
-        """Enable or disable the editor"""
-        self.text_edit.setEnabled(enabled)
+        """Enable/disable editing + formatting controls.
+
+        We keep the editor widget enabled so users can still select/copy text
+        in read-only views (e.g., chapter combined view). We toggle readOnly instead.
+        """
+        self.text_edit.setReadOnly(not enabled)
+
+        # Formatting actions
         self.bold_action.setEnabled(enabled)
         self.italic_action.setEnabled(enabled)
         self.underline_action.setEnabled(enabled)
+        self.strike_action.setEnabled(enabled)
+        self.font_combo.setEnabled(enabled)
+        self.font_size_combo.setEnabled(enabled)
+        self.align_left_action.setEnabled(enabled)
+        self.align_center_action.setEnabled(enabled)
+        self.align_right_action.setEnabled(enabled)
+        self.align_justify_action.setEnabled(enabled)
 
     def undo(self):
         """Undo last action"""
@@ -508,40 +572,26 @@ class EditorWidget(QWidget):
 
     def show_editor_context_menu(self, position):
         """Show context menu in editor"""
-        try:
-            from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtWidgets import QMenu
 
-            menu = self.text_edit.createStandardContextMenu()
-            cursor = self.text_edit.textCursor()
+        menu = self.text_edit.createStandardContextMenu()
+        cursor = self.text_edit.textCursor()
 
-            if cursor.hasSelection():
-                menu.addSeparator()
+        if cursor.hasSelection():
+            menu.addSeparator()
 
-                ai_rewrite_action = QAction("🤖 Rewrite with AI", self)
-                ai_rewrite_action.triggered.connect(self.request_ai_rewrite)
-                menu.addAction(ai_rewrite_action)
+            ai_rewrite_action = QAction("🤖 Rewrite with AI", self)
+            ai_rewrite_action.triggered.connect(self.request_ai_rewrite)
+            menu.addAction(ai_rewrite_action)
 
-            menu.exec(self.text_edit.mapToGlobal(position))
-        except Exception as e:
-            print(f"Error showing context menu: {e}")
-            import traceback
-            traceback.print_exc()
+        menu.exec(self.text_edit.mapToGlobal(position))
 
     def request_ai_rewrite(self):
         """Request AI rewrite of selected text"""
-        try:
-            print("request_ai_rewrite called")
-            cursor = self.text_edit.textCursor()
-            if cursor.hasSelection():
-                selected_text = cursor.selectedText()
-                print(f"Emitting rewrite_requested with {len(selected_text)} chars")
-                self.rewrite_requested.emit(selected_text)
-            else:
-                print("No selection")
-        except Exception as e:
-            print(f"Error in request_ai_rewrite: {e}")
-            import traceback
-            traceback.print_exc()
+        cursor = self.text_edit.textCursor()
+        if cursor.hasSelection():
+            selected_text = cursor.selectedText()
+            self.rewrite_requested.emit(selected_text)
 
     def apply_modern_style(self):
         """Apply modern styling to the editor"""

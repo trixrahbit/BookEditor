@@ -82,7 +82,7 @@ class AIManager:
 
     def get_max_tokens(self) -> int:
         """Get max tokens setting"""
-        return int(self.settings.value("ai/max_tokens", 2000))
+        return int(self.settings.value("ai/max_tokens", 4000))
 
     def call_api(self, messages: List[Dict[str, str]],
                  temperature: Optional[float] = None,

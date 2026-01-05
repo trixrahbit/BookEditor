@@ -5,6 +5,8 @@ Main application entry point
 """
 
 import sys
+from typing import Dict, Any
+
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox, QFileDialog, QApplication
@@ -15,8 +17,10 @@ from pathlib import Path
 
 from ai_integration import AIFeatures
 from ai_manager import ai_manager
-from db_manager import DatabaseManager
+from autosave_manager import AutoSaveManager
+from db_manager import DatabaseManager, InsightDatabase
 from editor_widget import EditorWidget
+from insight_service import InsightService
 from metadata_panel import MetadataPanel
 from models.project import Project, ItemType
 from project_dialog import ProjectDialog
@@ -26,6 +30,7 @@ from story_insights_dialog import StoryInsightsDialog, AnalysisWorker
 from docx_importer import DocxImporter
 from analyzer import AIAnalyzer
 from story_extractor import StoryExtractor
+from chapter_insights_viewer import ChapterInsightsViewer
 
 
 class MainWindow(QMainWindow):
@@ -36,9 +41,12 @@ class MainWindow(QMainWindow):
         self.ai_integration = None
         self.story_extractor = None
         self.current_project: Project = None
-
+        self.autosave = AutoSaveManager(self, delay_ms=1000)  # 1 second delay
+        self.autosave.save_triggered.connect(self.save_current_content)
         self.init_ui()
         self.restore_settings()
+        self.insight_db = None
+        self.insight_service = None
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -67,18 +75,36 @@ class MainWindow(QMainWindow):
         self.project_tree.ai_fill_requested.connect(self.on_ai_fill_scene)
 
         # Right panel - Metadata
+        # Right panel - Smart panel (metadata OR chapter insights)
         self.metadata_panel = MetadataPanel()
         self.metadata_panel.setMinimumWidth(280)
         self.metadata_panel.metadata_changed.connect(self.on_metadata_changed)
 
+        # Chapter insights viewer
+        self.chapter_insights = ChapterInsightsViewer()
+        self.chapter_insights.setMinimumWidth(280)
+        self.chapter_insights.analyze_requested.connect(self.analyze_chapter_ai)
+        self.chapter_insights.fix_requested.connect(self.on_insight_fix_requested)
+
+        # Stack them (only one visible at a time)
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.addWidget(self.metadata_panel)
+        right_layout.addWidget(self.chapter_insights)
+
+        # Hide chapter insights initially
+        self.chapter_insights.setVisible(False)
+
         # NOW create menu bar and toolbar (after widgets exist)
         self.create_menu_bar()
         self.create_toolbar()
+        self.project_tree.ai_analyze_requested.connect(self.analyze_chapter_ai)
 
         # Add widgets to splitter
         main_splitter.addWidget(self.project_tree)
         main_splitter.addWidget(self.editor)
-        main_splitter.addWidget(self.metadata_panel)
+        main_splitter.addWidget(right_panel)
 
         # Set initial splitter sizes - give more space to tree and metadata
         main_splitter.setSizes([320, 600, 320])
@@ -89,7 +115,8 @@ class MainWindow(QMainWindow):
         self.statusBar = QStatusBar()
         self.setStatusBar(self.statusBar)
         self.statusBar.showMessage("Ready")
-
+        self.autosave.saving_started.connect(lambda: self.statusBar.showMessage("Saving...", 0))
+        self.autosave.saving_finished.connect(lambda: self.statusBar.showMessage("Saved ✓", 2000))
         # Store splitter for settings
         self.main_splitter = main_splitter
 
@@ -309,7 +336,13 @@ class MainWindow(QMainWindow):
                 # Initialize AI integration and story extractor
                 self.ai_integration = AIFeatures(self, self.db_manager, self.current_project.id)
                 self.story_extractor = StoryExtractor(self, self.db_manager, self.current_project.id)
-
+                # Initialize insight service
+                self.insight_db = InsightDatabase(self.db_manager)
+                self.insight_service = InsightService(
+                    ai_manager,
+                    self.db_manager,
+                    self.insight_db
+                )
                 # Update UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
@@ -343,7 +376,13 @@ class MainWindow(QMainWindow):
 
                 # NOW initialize AI integration (after current_project exists)
                 self.ai_integration = AIFeatures(self, self.db_manager, self.current_project.id)
-
+                # Initialize insight service
+                self.insight_db = InsightDatabase(self.db_manager)
+                self.insight_service = InsightService(
+                    ai_manager,
+                    self.db_manager,
+                    self.insight_db
+                )
                 # Initialize story extractor
                 self.story_extractor = StoryExtractor(self, self.db_manager, self.current_project.id)
 
@@ -389,15 +428,46 @@ class MainWindow(QMainWindow):
         if not self.db_manager:
             return
 
+        # SAVE CURRENT ITEM IMMEDIATELY before switching
+        self.autosave.save_immediately()
+
+        # Now load new item
         item = self.db_manager.load_item(item_id)
-        if item:
+        if not item:
+            return
+
+        from models.project import ItemType
+
+        # Show appropriate panel based on item type
+        if item.item_type == ItemType.CHAPTER:
+            # Show chapter insights instead of metadata
+            self.metadata_panel.setVisible(False)
+            self.chapter_insights.setVisible(True)
+
+            # Load chapter insights
+            if self.insight_service:
+                self.chapter_insights.load_chapter(
+                    item_id,
+                    item.name,
+                    self.current_project.id,
+                    self.insight_service
+                )
+
+            # Still load in editor (read-only chapter view)
+            self.editor.load_item(item, self.db_manager, self.current_project.id)
+        else:
+            # Show normal metadata for other items
+            self.metadata_panel.setVisible(True)
+            self.chapter_insights.setVisible(False)
+            self.chapter_insights.clear()
+
+            # Load normally
             self.editor.load_item(item, self.db_manager, self.current_project.id)
             self.metadata_panel.load_item(item, self.db_manager, self.current_project.id)
 
     def on_content_changed(self):
         """Handle content changes in editor"""
-        # Auto-save could be implemented here
-        pass
+        self.autosave.request_save()
 
     def on_metadata_changed(self):
         """Handle metadata changes"""
@@ -558,6 +628,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close event"""
+        # Shutdown insight service
+        if self.insight_service:
+            self.insight_service.shutdown()
+
         # Save settings
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("windowState", self.saveState())
@@ -591,6 +665,67 @@ class MainWindow(QMainWindow):
 
         print("Calling ai_integration.rewrite_text...")
         self.ai_integration.rewrite_text(text, replace_text)
+
+    def on_ai_analyze_requested(self, item_id: str):
+        """AI Analyze button handler (scene => autofill properties)."""
+        try:
+            if not self.current_project:
+                return
+
+            item = self.db_manager.load_item(item_id)
+            if not item:
+                return
+
+            # If a scene is currently open, save latest editor content before analyzing
+            if self.editor_widget.current_item and self.editor_widget.current_item.id == item_id:
+                self.editor_widget.auto_save()
+
+            from models.project import ItemType
+
+            if item.item_type == ItemType.SCENE:
+                # Uses your existing AIIntegration pipeline to fill Summary/Goal/Conflict/Outcome
+                def _refresh():
+                    refreshed = self.db_manager.load_item(item_id)
+                    if refreshed:
+                        self.metadata_panel.load_item(refreshed, self.db_manager, self.current_project.id)
+
+                self.ai_integration.fill_scene_properties(item_id, callback=_refresh)
+
+            elif item.item_type == ItemType.CHAPTER:
+                # You said you’ll handle the UI next — chapter analysis can be wired here later.
+                QMessageBox.information(
+                    self,
+                    "Chapter Analysis",
+                    "Chapter analysis wiring is ready for UI next.\n\n"
+                    "Right now the chapter view shows all scenes combined (read-only)."
+                )
+
+        except Exception as e:
+            QMessageBox.critical(self, "AI Analyze Error", str(e))
+
+    def analyze_chapter_ai(self, chapter_id: str):
+        """Run comprehensive AI analysis on a chapter"""
+        if not self.current_project:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not self.insight_service:
+            QMessageBox.warning(self, "No Analysis", "Insight service not initialized")
+            return
+
+        # Show analysis dialog
+        from advanced_analysis_dialog import AdvancedAnalysisDialog
+        dialog = AdvancedAnalysisDialog(
+            self,
+            self.db_manager,
+            self.current_project.id,
+            chapter_id,
+            self.insight_service
+        )
+
+        # Refresh insights viewer when analysis completes
+        if dialog.exec():
+            self.chapter_insights.refresh()
 
     def check_story_consistency(self):
         """Check story for consistency issues"""
@@ -707,6 +842,45 @@ class MainWindow(QMainWindow):
             return
 
         self.ai_integration.show_story_insights()
+
+    def save_current_content(self):
+        """Actually save the current content"""
+        if not self.current_project or not self.db_manager:
+            return
+
+        # Get current item from editor
+        current_item = self.editor.current_item
+        if current_item:
+            print(f"Saving: {current_item.name}")
+            self.db_manager.save_item(self.current_project.id, current_item)
+            self.statusBar.showMessage("Saved", 2000)
+
+    def on_insight_fix_requested(self, issue: Dict[str, Any], chapter_id: str):
+        """Handle AI fix request from chapter insights"""
+        scene_id = issue.get('scene_id')
+        if not scene_id:
+            QMessageBox.warning(self, "No Scene", "This issue has no associated scene")
+            return
+
+        scene = self.db_manager.load_item(scene_id)
+        if not scene:
+            QMessageBox.warning(self, "Scene Not Found", "Could not find the scene")
+            return
+
+        # Open AI fix dialog
+        from ai_fix_dialog import AIFixDialog
+        dialog = AIFixDialog(
+            self,
+            issue,
+            scene_id,
+            getattr(scene, 'content', ''),
+            self.db_manager,
+            self.current_project.id
+        )
+
+        if dialog.exec():
+            # Refresh insights after fix applied
+            self.chapter_insights.refresh()
 
 def main():
     """Main entry point for the application"""

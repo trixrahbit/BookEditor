@@ -510,3 +510,183 @@ Provide:
             return True, "Connection successful!"
         except Exception as e:
             return False, f"Connection failed: {e}"
+
+
+
+def _safe_json_loads(s: str) -> Any:
+    """
+    AI sometimes wraps JSON with stray text. Try to extract the first JSON object/array.
+    """
+    raw = (s or "").strip()
+    if not raw:
+        return None
+
+    # quick path
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    # try to find a JSON array/object in the text
+    start_candidates = [raw.find("["), raw.find("{")]
+    start_candidates = [x for x in start_candidates if x != -1]
+    if not start_candidates:
+        raise ValueError("AI did not return JSON.")
+    start = min(start_candidates)
+
+    # attempt from that start
+    trimmed = raw[start:]
+    # try progressively trimming the end
+    for cut in range(0, min(5000, len(trimmed))):
+        try:
+            return json.loads(trimmed[:len(trimmed)-cut])
+        except Exception:
+            continue
+
+    raise ValueError("Failed to parse AI JSON output.")
+
+
+@dataclass
+class ChapterData:
+    id: str
+    name: str
+    scenes: List[Dict[str, Any]]  # each includes id,name,content(html)
+
+
+class AnalysisEngine:
+    """
+    Stateless analysis runner. Uses ai_manager.call_api to execute prompts.
+    """
+
+    def __init__(self, ai_manager):
+        self.ai_manager = ai_manager
+
+    # --------- CHAPTER ANALYSIS ----------
+
+    def analyze_chapter_timeline(self, chapter: ChapterData, scene_max_chars: int = 12000) -> Dict[str, Any]:
+        blocks = self._chapter_scene_blocks(chapter, scene_max_chars)
+        prompt = prompts.chapter_timeline_prompt(chapter.name, blocks)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message=prompts.system_timeline(),
+            temperature=0.25,
+            max_tokens=8000
+        )
+        issues = _safe_json_loads(resp) or []
+        issues = self._attach_scene_ids_by_name(issues, chapter)
+        return {"type": "timeline", "issues": issues, "chapter": chapter.name}
+
+    def analyze_chapter_consistency(self, chapter: ChapterData, scene_max_chars: int = 12000) -> Dict[str, Any]:
+        blocks = self._chapter_scene_blocks(chapter, scene_max_chars)
+        prompt = prompts.chapter_consistency_prompt(chapter.name, blocks)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message=prompts.system_consistency(),
+            temperature=0.25,
+            max_tokens=8000
+        )
+        issues = _safe_json_loads(resp) or []
+        issues = self._attach_scene_ids_by_name(issues, chapter)
+        return {"type": "consistency", "issues": issues, "chapter": chapter.name}
+
+    def analyze_chapter_style(self, chapter: ChapterData, scene_max_chars: int = 12000) -> Dict[str, Any]:
+        blocks = self._chapter_scene_blocks(chapter, scene_max_chars)
+        prompt = prompts.chapter_style_prompt(chapter.name, blocks)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message=prompts.system_style(),
+            temperature=0.35,
+            max_tokens=8000
+        )
+        issues = _safe_json_loads(resp) or []
+        issues = self._attach_scene_ids_by_name(issues, chapter)
+        return {"type": "style", "issues": issues, "chapter": chapter.name}
+
+    def analyze_chapter_reader_snapshot(self, chapter: ChapterData, scene_max_chars: int = 12000) -> Dict[str, Any]:
+        blocks = self._chapter_scene_blocks(chapter, scene_max_chars)
+        prompt = prompts.chapter_reader_snapshot_prompt(chapter.name, blocks)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You produce reader-clarity snapshots as strict JSON.",
+            temperature=0.2,
+            max_tokens=4000
+        )
+        payload = _safe_json_loads(resp) or {}
+        return {"type": "reader_snapshot", "payload": payload, "chapter": chapter.name}
+
+    # --------- BOOK ANALYSIS ----------
+
+    def analyze_book_story_bible(self, compiled_text: str, existing_bible: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = {"compiled_text": compiled_text, "existing_bible": existing_bible or {}}
+        prompt = prompts.book_bible_prompt(ctx)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message=prompts.system_story_bible(),
+            temperature=0.2,
+            max_tokens=8000
+        )
+        bible = _safe_json_loads(resp) or {}
+        return {"type": "story_bible", "payload": bible}
+
+    def analyze_book_threads(self, compiled_text: str) -> Dict[str, Any]:
+        prompt = prompts.book_threads_prompt({"compiled_text": compiled_text})
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You track story threads and output strict JSON only.",
+            temperature=0.25,
+            max_tokens=8000
+        )
+        return {"type": "threads", "payload": _safe_json_loads(resp) or {}}
+
+    def analyze_book_promise_payoff(self, compiled_text: str) -> Dict[str, Any]:
+        prompt = prompts.book_promise_payoff_prompt({"compiled_text": compiled_text})
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You audit promise-payoff. Output strict JSON only.",
+            temperature=0.25,
+            max_tokens=8000
+        )
+        return {"type": "promise_payoff", "payload": _safe_json_loads(resp) or {}}
+
+    def analyze_book_voice_drift(self, compiled_text: str) -> Dict[str, Any]:
+        prompt = prompts.book_voice_drift_prompt({"compiled_text": compiled_text})
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You analyze voice/tone/pacing drift and output strict JSON only.",
+            temperature=0.25,
+            max_tokens=6000
+        )
+        return {"type": "voice_drift", "payload": _safe_json_loads(resp) or {}}
+
+    def analyze_book_reader_sim(self, compiled_text: str) -> Dict[str, Any]:
+        prompt = prompts.book_reader_sim_prompt({"compiled_text": compiled_text})
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message=prompts.system_reader_sim(),
+            temperature=0.35,
+            max_tokens=6000
+        )
+        return {"type": "reader_sim", "payload": _safe_json_loads(resp) or {}}
+
+    # --------- helpers ----------
+
+    def _chapter_scene_blocks(self, chapter: ChapterData, scene_max_chars: int) -> List[Dict[str, Any]]:
+        blocks = []
+        for s in chapter.scenes:
+            blocks.append(format_scene_for_ai(s.get("name","Untitled"), s.get("content",""), max_chars=scene_max_chars))
+        return blocks
+
+    def _attach_scene_ids_by_name(self, issues: List[Dict[str, Any]], chapter: ChapterData) -> List[Dict[str, Any]]:
+        # stable mapping: scene name -> id (case-insensitive)
+        name_to_id = {}
+        for s in chapter.scenes:
+            nm = (s.get("name") or "").strip().lower()
+            if nm:
+                name_to_id[nm] = s.get("id")
+        for it in issues:
+            loc = (it.get("location") or "").strip().lower()
+            if loc and loc in name_to_id:
+                it["scene_id"] = name_to_id[loc]
+            else:
+                it["scene_id"] = it.get("scene_id")  # preserve if AI returned one
+        return issues

@@ -44,7 +44,7 @@ class ExtractionWorker(QThread):
         total_chapters = len(self.chapters)
 
         for idx, chapter in enumerate(self.chapters):
-            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            chapter_name = chapter.get('name', f'Chapter {idx + 1}')
             self.progress.emit(f"Analyzing {chapter_name}...", int((idx / total_chapters) * 100))
 
             # Get scenes for this chapter
@@ -81,7 +81,7 @@ ROLE: [one-line role description]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a literary analyst extracting character information from novels.",
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=16000
                 )
 
                 # Parse response
@@ -99,7 +99,8 @@ ROLE: [one-line role description]
                         # Upgrade significance if needed
                         if char_data['significance'] == 'major':
                             all_characters[matched_name]['significance'] = 'major'
-                        elif char_data['significance'] == 'supporting' and all_characters[matched_name]['significance'] == 'minor':
+                        elif char_data['significance'] == 'supporting' and all_characters[matched_name][
+                            'significance'] == 'minor':
                             all_characters[matched_name]['significance'] = 'supporting'
                         # Use the longer/more complete name
                         if len(char_name) > len(matched_name):
@@ -125,7 +126,7 @@ ROLE: [one-line role description]
         total_chapters = len(self.chapters)
 
         for idx, chapter in enumerate(self.chapters):
-            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            chapter_name = chapter.get('name', f'Chapter {idx + 1}')
             self.progress.emit(f"Finding locations in {chapter_name}...", int((idx / total_chapters) * 100))
 
             # Get scenes for this chapter
@@ -162,7 +163,7 @@ DESCRIPTION: [one-line description]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a literary analyst extracting location information from novels.",
                     temperature=0.3,
-                    max_tokens=1000
+                    max_tokens=16000
                 )
 
                 # Parse response
@@ -193,7 +194,7 @@ DESCRIPTION: [one-line description]
         total_chapters = len(self.chapters)
 
         for idx, chapter in enumerate(self.chapters):
-            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            chapter_name = chapter.get('name', f'Chapter {idx + 1}')
             self.progress.emit(f"Analyzing plot in {chapter_name}...", int((idx / total_chapters) * 100))
 
             # Get scenes for this chapter
@@ -472,6 +473,9 @@ class StoryExtractor:
             )
 
             if msg == QMessageBox.StandardButton.Yes:
+                # Clear existing characters first
+                self._clear_existing_items('character')
+                # Save new characters
                 self._save_characters(characters)
 
         def on_error(error):
@@ -529,6 +533,9 @@ class StoryExtractor:
             )
 
             if msg == QMessageBox.StandardButton.Yes:
+                # Clear existing locations first
+                self._clear_existing_items('location')
+                # Save new locations
                 self._save_locations(locations)
 
         def on_error(error):
@@ -603,6 +610,9 @@ class StoryExtractor:
                 )
 
                 if save_msg == QMessageBox.StandardButton.Yes:
+                    # Clear existing plot threads first
+                    self._clear_existing_items('plot_thread')
+                    # Save new plot threads
                     self._save_plot_threads(plot_threads)
 
         def on_error(error):
@@ -644,6 +654,29 @@ class StoryExtractor:
         # Reload the project tree
         if hasattr(self.parent, 'project_tree'):
             self.parent.project_tree.load_project(self.db_manager, self.project_id)
+
+    def _clear_existing_items(self, item_type: str):
+        """Clear existing items of a specific type before adding new ones"""
+        from models.project import ItemType
+
+        # Map string types to ItemType enum
+        type_map = {
+            'character': ItemType.CHARACTER,
+            'location': ItemType.LOCATION,
+            'plot_thread': ItemType.PLOT_THREAD
+        }
+
+        if item_type not in type_map:
+            return
+
+        # Load all items of this type
+        items = self.db_manager.load_items(self.project_id, type_map[item_type])
+
+        # Delete each one
+        for item in items:
+            self.db_manager.delete_item(item.id)
+
+        print(f"Cleared {len(items)} existing {item_type}s")
 
     def _save_locations(self, locations: Dict):
         """Save extracted locations to database"""

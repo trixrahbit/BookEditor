@@ -533,7 +533,10 @@ class AIFeatures:
 
     def show_story_insights(self):
         """Show the Story Insights viewer with all saved analyses"""
-        viewer = StoryInsightsViewer(self.parent)
+        from story_insights_viewer import StoryInsightsViewer
+
+        # Pass db_manager and project_id for AI Fix feature
+        viewer = StoryInsightsViewer(self.parent, self.db_manager, self.project_id)
 
         # Load saved analyses
         timeline_data = self.insights_db.load_analysis('timeline')

@@ -1,6 +1,7 @@
 """
 AI Prompts - Centralized prompts for all AI features
 """
+from typing import Dict, Any, List
 
 
 class AIPrompts:
@@ -189,6 +190,294 @@ Analyze:
             "system": system,
             "user": user
         }
+
+    @staticmethod
+    def system_story_bible() -> str:
+        return (
+            "You are a story architect. You create machine-readable story bibles that are consistent, "
+            "conservative (do not invent), and grounded in the text. Output VALID JSON only."
+        )
+
+    @staticmethod
+    def system_timeline() -> str:
+        return "You are a timeline and continuity expert. Be precise. Use the provided paragraph references."
+
+    @staticmethod
+    def system_consistency() -> str:
+        return "You are a story consistency expert. Be precise. Use the provided paragraph references."
+
+    @staticmethod
+    def system_style() -> str:
+        return "You are a professional writing coach. Be specific and practical. Use paragraph references."
+
+    @staticmethod
+    def system_reader_sim() -> str:
+        return "You simulate readers realistically. Be concrete, not vague."
+
+    def book_bible_prompt(book_context: Dict[str, Any]) -> str:
+        """
+        book_context: {
+            "chapters": [{id,name,scenes:[{id,name,numbered_text}]}...],
+            "existing_bible": {..} or None
+        }
+        """
+        existing = book_context.get("existing_bible")
+        existing_json = existing if existing else {}
+
+        return f"""
+    Build or update a Canonical Story Bible from the manuscript.
+
+    RULES:
+    - Output MUST be valid JSON only (no prose).
+    - Do not invent details not supported by the manuscript.
+    - If unsure, omit or mark as "unknown".
+    - Keep it compact but useful.
+
+    OUTPUT JSON SCHEMA:
+    {{
+      "themes": [string],
+      "characters": {{
+        "<name>": {{
+          "arc": string,
+          "traits": [string],
+          "core_wound": string,
+          "relationships": {{ "<other>": string }}
+        }}
+      }},
+      "rules_of_world": [string],
+      "promises_to_reader": [string],
+      "open_questions": [string],
+      "notes": [string]
+    }}
+
+    EXISTING_BIBLE (may be empty):
+    {existing_json}
+
+    MANUSCRIPT EXCERPTS (numbered paragraphs by scene):
+    {book_context.get("compiled_text", "")}
+
+    Return JSON only.
+    """.strip()
+
+    @staticmethod
+    def chapter_timeline_prompt(chapter_name: str, scene_blocks: List[Dict[str, Any]]) -> str:
+        compiled = []
+        for s in scene_blocks:
+            compiled.append(f"SCENE: {s['scene_name']}\n{s['numbered_text']}")
+        compiled_text = "\n\n---\n\n".join(compiled)
+
+        return f"""
+    Analyze timeline issues in this chapter.
+
+    CHAPTER: {chapter_name}
+
+    SCENES (each paragraph has an anchor like [P3]):
+    {compiled_text}
+
+    Identify SPECIFIC issues:
+    - time contradictions
+    - impossible sequences
+    - location conflicts
+    - day/night inconsistencies
+    - implied time jumps that break logic
+
+    OUTPUT: JSON array only, each issue must include anchors.
+    [
+      {{
+        "type": "timeline",
+        "severity": "Critical|Major|Minor",
+        "issue": "...",
+        "detail": "...",
+        "location": "<scene name>",
+        "anchors": ["P3","P4"],     // paragraph ids within that scene
+        "quote": "short excerpt from relevant paragraph"
+      }}
+    ]
+
+    Return JSON only.
+    """.strip()
+
+    def chapter_consistency_prompt(chapter_name: str, scene_blocks: List[Dict[str, Any]]) -> str:
+        compiled = []
+        for s in scene_blocks:
+            compiled.append(f"SCENE: {s['scene_name']}\n{s['numbered_text']}")
+        compiled_text = "\n\n---\n\n".join(compiled)
+
+        return f"""
+    Check for story consistency issues in this chapter.
+
+    CHAPTER: {chapter_name}
+
+    SCENES (each paragraph has an anchor like [P3]):
+    {compiled_text}
+
+    Identify:
+    - character behavior inconsistencies
+    - contradictions with earlier events (within this chapter’s scenes)
+    - continuity errors
+    - forgotten context inside the chapter
+
+    OUTPUT: JSON array only.
+    [
+      {{
+        "type": "consistency",
+        "severity": "Critical|Major|Minor",
+        "issue": "...",
+        "detail": "...",
+        "location": "<scene name>",
+        "anchors": ["P2"],
+        "quote": "short excerpt"
+      }}
+    ]
+
+    Return JSON only.
+    """.strip()
+
+    def chapter_style_prompt(chapter_name: str, scene_blocks: List[Dict[str, Any]]) -> str:
+        # style can sample; but we’ll keep full anchors for now
+        compiled = []
+        for s in scene_blocks:
+            compiled.append(f"SCENE: {s['scene_name']}\n{s['numbered_text']}")
+        compiled_text = "\n\n---\n\n".join(compiled)
+
+        return f"""
+    Analyze writing style in this chapter.
+
+    CHAPTER: {chapter_name}
+
+    SCENES (paragraph anchors like [P3]):
+    {compiled_text}
+
+    Identify strengths and improvements:
+    - sentence variety
+    - show vs tell
+    - dialogue quality
+    - pacing
+    - voice consistency
+
+    OUTPUT: JSON array only.
+    [
+      {{
+        "type": "style",
+        "severity": "Strength|Suggestion|Observation",
+        "issue": "...",
+        "detail": "...",
+        "location": "<scene name>",
+        "anchors": ["P5"],
+        "quote": "short excerpt",
+        "suggestions": ["...", "..."]
+      }}
+    ]
+    Return JSON only.
+    """.strip()
+
+    def chapter_reader_snapshot_prompt(chapter_name: str, scene_blocks: List[Dict[str, Any]]) -> str:
+        compiled = []
+        for s in scene_blocks:
+            compiled.append(f"SCENE: {s['scene_name']}\n{s['numbered_text']}")
+        compiled_text = "\n\n---\n\n".join(compiled)
+
+        return f"""
+    At the end of this chapter, produce a reader-knowledge snapshot.
+
+    CHAPTER: {chapter_name}
+    TEXT:
+    {compiled_text}
+
+    Return JSON only:
+    {{
+      "reader_beliefs": [string],
+      "facts_true": [string],
+      "facts_ambiguous": [string],
+      "questions_raised": [string]
+    }}
+    """.strip()
+
+    def book_threads_prompt(book_context: Dict[str, Any]) -> str:
+        return f"""
+    Track threads across the whole book: themes, character arcs, mysteries.
+
+    Return JSON only:
+    {{
+      "themes": [
+        {{
+          "name": "Theme name",
+          "introduced": ["Chapter X"],
+          "strongest": ["Chapter Y"],
+          "missing": ["Chapter Z"],
+          "notes": ["..."]
+        }}
+      ],
+      "characters": [
+        {{
+          "name": "Character",
+          "arc": "arc summary",
+          "progression": [{{"chapter": "Chapter 1", "state": "..."}}, ...],
+          "regressions": [{{"chapter": "...", "note": "..."}}]
+        }}
+      ],
+      "mysteries": [
+        {{
+          "name": "Mystery",
+          "introduced": ["..."],
+          "developed": ["..."],
+          "resolved": ["..."],
+          "dropped": ["..."]
+        }}
+      ]
+    }}
+
+    MANUSCRIPT EXCERPTS:
+    {book_context.get("compiled_text", "")}
+    """.strip()
+
+    def book_promise_payoff_prompt(book_context: Dict[str, Any]) -> str:
+        return f"""
+    Audit promise-payoff across the book.
+
+    Return JSON only:
+    {{
+      "promises": [{{"promise": "...", "introduced": "Chapter X", "status": "Fulfilled|Unfulfilled|Ambiguous", "notes": "..."}}],
+      "questions": [{{"question": "...", "raised": "Chapter X", "status": "Answered|Unanswered|Ambiguous", "notes": "..."}}]
+    }}
+
+    MANUSCRIPT:
+    {book_context.get("compiled_text", "")}
+    """.strip()
+
+    def book_voice_drift_prompt(book_context: Dict[str, Any]) -> str:
+        return f"""
+    Analyze narrative voice and tone consistency across the manuscript.
+
+    Return JSON only:
+    {{
+      "overall_voice": "...",
+      "tone_shifts": [{{"chapter": "Chapter X", "note": "...", "severity": "minor|major"}}],
+      "pacing_spikes": [{{"chapter": "Chapter X", "note": "..."}}],
+      "recommendations": [string]
+    }}
+
+    MANUSCRIPT:
+    {book_context.get("compiled_text", "")}
+    """.strip()
+
+    def book_reader_sim_prompt(book_context: Dict[str, Any]) -> str:
+        return f"""
+    Simulate 3 readers:
+    - careful reader
+    - skimmer
+    - distracted reader
+
+    Return JSON only:
+    {{
+      "careful_reader": {{"misunderstandings": [string], "missed": [string]}},
+      "skimmer": {{"misunderstandings": [string], "missed": [string]}},
+      "distracted_reader": {{"misunderstandings": [string], "missed": [string]}}
+    }}
+
+    MANUSCRIPT:
+    {book_context.get("compiled_text", "")}
+    """.strip()
 
 
 class PromptParser:
