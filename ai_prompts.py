@@ -527,3 +527,27 @@ class PromptParser:
             properties[current_key] = ' '.join(current_value).strip()
 
         return properties
+
+
+# Create module-level convenience functions for analyzer.py
+_prompts = AIPrompts()
+
+# System messages
+system_timeline = AIPrompts.system_timeline
+system_consistency = AIPrompts.system_consistency
+system_style = AIPrompts.system_style
+system_reader_sim = AIPrompts.system_reader_sim
+system_story_bible = AIPrompts.system_story_bible
+
+# Chapter prompts
+chapter_timeline_prompt = AIPrompts.chapter_timeline_prompt
+chapter_consistency_prompt = AIPrompts.chapter_consistency_prompt
+chapter_style_prompt = AIPrompts.chapter_style_prompt
+chapter_reader_snapshot_prompt = AIPrompts.chapter_reader_snapshot_prompt
+
+# Book prompts
+book_bible_prompt = AIPrompts.book_bible_prompt
+book_threads_prompt = AIPrompts.book_threads_prompt
+book_promise_payoff_prompt = AIPrompts.book_promise_payoff_prompt
+book_voice_drift_prompt = AIPrompts.book_voice_drift_prompt
+book_reader_sim_prompt = AIPrompts.book_reader_sim_prompt

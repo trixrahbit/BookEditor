@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from PyQt6.QtCore import QSettings
 import json
+from text_utils import format_scene_for_ai
+import ai_prompts as prompts
 
 try:
     from openai import AzureOpenAI, OpenAI

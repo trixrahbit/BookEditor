@@ -15,6 +15,8 @@ class ProjectTreeWidget(QTreeWidget):
     item_selected = pyqtSignal(str)  # Emits item ID
     ai_fill_requested = pyqtSignal(str)  # Emits scene_id for AI analysis
     ai_analyze_requested = pyqtSignal(str)  # chapter_id
+    ai_fix_requested = pyqtSignal(str)  # chapter_id
+
     def __init__(self):
         super().__init__()
         self.db_manager: DatabaseManager = None
@@ -225,10 +227,22 @@ class ProjectTreeWidget(QTreeWidget):
                     menu.addSeparator()
                 # AI features for chapters
                 if db_item.item_type == ItemType.CHAPTER:
+                    new_scene_action = QAction("➕ New Scene in this Chapter", self)
+                    new_scene_action.triggered.connect(lambda: self.add_scene_to_chapter(item_id))
+                    menu.addAction(new_scene_action)
+
+                    menu.addSeparator()
+
                     ai_analyze_action = QAction("🤖 AI Analyze Chapter", self)
                     ai_analyze_action.triggered.connect(lambda: self.ai_analyze_requested.emit(item_id))
                     menu.addAction(ai_analyze_action)
+
                     menu.addSeparator()
+                    ai_fix_action = QAction("🔧 AI Fix Issues", self)
+                    ai_fix_action.triggered.connect(lambda: self.ai_fix_requested.emit(item_id))
+                    menu.addAction(ai_fix_action)
+
+
 
             # Regular edit/delete actions
             rename_action = QAction("Rename", self)
@@ -343,3 +357,35 @@ class ProjectTreeWidget(QTreeWidget):
         if reply == QMessageBox.StandardButton.Yes:
             self.db_manager.delete_item(item_id)
             self.load_project(self.db_manager, self.project_id)
+
+    def add_scene_to_chapter(self, chapter_id: str):
+        """Add a new scene directly under a specific chapter (forced parent)."""
+        if not self.db_manager or not self.project_id:
+            return
+
+        # Confirm the parent really is a chapter
+        parent = self.db_manager.load_item(chapter_id)
+        if not parent or parent.item_type != ItemType.CHAPTER:
+            QMessageBox.warning(self, "Invalid Parent", "Selected item is not a chapter.")
+            return
+
+        name, ok = QInputDialog.getText(
+            self,
+            "Add Scene",
+            "Enter scene name:"
+        )
+        if not ok or not name:
+            return
+
+        scene = Scene(name=name, parent_id=chapter_id)
+
+        # Optional: set order at end (if your DB respects `order`)
+        try:
+            existing = self.db_manager.load_items(self.project_id, ItemType.SCENE, parent_id=chapter_id)
+            scene.order = len(existing)
+        except Exception:
+            # If load_items signature differs or order is handled elsewhere, ignore
+            pass
+
+        self.db_manager.save_item(self.project_id, scene)
+        self.load_project(self.db_manager, self.project_id)

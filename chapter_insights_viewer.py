@@ -192,37 +192,81 @@ class ChapterInsightsViewer(QWidget):
 
     def load_chapter(self, chapter_id: str, chapter_name: str, project_id: str, insight_service):
         """Load chapter and its insights"""
-        self.chapter_id = chapter_id
-        self.project_id = project_id
-        self.insight_service = insight_service
+        try:
+            print(f"[ChapterInsights] Loading chapter: {chapter_name}")
+            print(f"  chapter_id: {chapter_id}")
+            print(f"  project_id: {project_id}")
+            print(f"  insight_service: {insight_service}")
 
-        self.title_label.setText(f"Insights: {chapter_name}")
-        self.analyze_btn.setEnabled(True)
-        self.empty_state.setVisible(False)
-        self.tabs.setVisible(True)
+            self.chapter_id = chapter_id
+            self.project_id = project_id
+            self.insight_service = insight_service
 
-        # Load existing insights
-        self._load_insights()
+            self.title_label.setText(f"Insights: {chapter_name}")
+            self.analyze_btn.setEnabled(True)
+            self.empty_state.setVisible(False)
+            self.tabs.setVisible(True)
+
+            print("[ChapterInsights] Loading insights...")
+            # Load existing insights
+            self._load_insights()
+            print("[ChapterInsights] Load complete")
+
+        except Exception as e:
+            print(f"[ChapterInsights] ERROR in load_chapter: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Show error in UI
+            self.status_label.setText(f"Error loading insights: {str(e)}")
+            self.status_label.setStyleSheet("color: #dc3545; font-weight: bold;")
 
     def _load_insights(self):
         """Load and display existing insights"""
-        if not self.insight_service or not self.chapter_id:
+        try:
+            print("[ChapterInsights] _load_insights called")
+
+            if not self.insight_service or not self.chapter_id:
+                print(f"  Missing: insight_service={self.insight_service}, chapter_id={self.chapter_id}")
+                return
+
+            print(f"  Getting insight_db...")
+            db = self.insight_service.insight_db
+            print(f"  db={db}")
+
+            # Get project_id from db_manager
+            # The insight_service has db_manager which has the project connection
+            # We need to get project_id from somewhere - let's store it when loading chapter
+            if not hasattr(self, 'project_id') or not self.project_id:
+                print("  No project_id available for loading insights")
+                self.status_label.setText("No project ID")
+                return
+
+            print(f"  Loading insights for project={self.project_id}, chapter={self.chapter_id}")
+
+            # Load each type
+            print("  Loading timeline...")
+            timeline = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'timeline')
+            print(f"    timeline={timeline is not None}")
+
+            print("  Loading consistency...")
+            consistency = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'consistency')
+            print(f"    consistency={consistency is not None}")
+
+            print("  Loading style...")
+            style = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'style')
+            print(f"    style={style is not None}")
+
+            print("  Loading reader...")
+            reader = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'reader_snapshot')
+            print(f"    reader={reader is not None}")
+
+        except Exception as e:
+            print(f"[ChapterInsights] ERROR in _load_insights: {e}")
+            import traceback
+            traceback.print_exc()
+            self.status_label.setText(f"Error: {str(e)}")
             return
-
-        db = self.insight_service.insight_db
-
-        # Get project_id from db_manager
-        # The insight_service has db_manager which has the project connection
-        # We need to get project_id from somewhere - let's store it when loading chapter
-        if not hasattr(self, 'project_id') or not self.project_id:
-            print("No project_id available for loading insights")
-            return
-
-        # Load each type
-        timeline = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'timeline')
-        consistency = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'consistency')
-        style = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'style')
-        reader = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'reader_snapshot')
 
         # Check if we have any insights
         has_insights = any([timeline, consistency, style, reader])

@@ -6,19 +6,20 @@ import re
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QToolBar, QPushButton,
-    QFontComboBox, QComboBox, QColorDialog
+    QFontComboBox, QComboBox, QColorDialog, QMessageBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QFont, QAction, QTextCharFormat, QColor, QTextListFormat, QTextCursor, QTextDocument
-
 from models.project import Scene, ItemType
 from db_manager import DatabaseManager
+from live_text_check import LiveTextChecker, CheckResult, SpellIssue, GrammarIssue
 
 class EditorWidget(QWidget):
     content_changed = pyqtSignal()
     analyze_requested = pyqtSignal(str)  # Emits item_id for analysis
     rewrite_requested = pyqtSignal(str)  # Emits selected text for rewriting
-
+    rewrite_selection_action_requested = pyqtSignal()
+    rewrite_scene_action_requested = pyqtSignal()
     def __init__(self):
         super().__init__()
         self.current_item: Scene = None
@@ -27,9 +28,25 @@ class EditorWidget(QWidget):
         self.auto_save_timer = QTimer()
         self.auto_save_timer.timeout.connect(self.auto_save)
         self.auto_save_timer.setInterval(5000)  # 5 seconds
-
+        self.persona_manager = None
         self.init_ui()
         self.apply_modern_style()
+        self.live_checks_enabled = True
+        self._spell_issues: list[SpellIssue] = []
+        self._grammar_issues: list[GrammarIssue] = []
+
+        # Initialize live spell/grammar checker
+        JAVA_PATH = r"C:\Program Files\Java\jdk-25\bin\java.exe"
+        self.live_checker = LiveTextChecker(
+            parent=self,
+            language="en_US",
+            debounce_ms=650,
+            do_spell=True,
+            do_grammar=True,
+            java_path=JAVA_PATH
+        )
+        self.live_checker.result_ready.connect(self._on_check_result)
+        self.live_checker.debug.connect(lambda msg: print(f"[LiveCheck] {msg}"))
 
     def init_ui(self):
         """Initialize the editor UI"""
@@ -269,6 +286,7 @@ class EditorWidget(QWidget):
 
         # Block signals while loading
         self.text_edit.blockSignals(True)
+        self.text_edit.setExtraSelections([])
 
         if item.item_type == ItemType.SCENE:
             self.title_label.setText(item.name)
@@ -318,10 +336,22 @@ class EditorWidget(QWidget):
         self.text_edit.blockSignals(False)
         self.update_word_count()
 
+        # ✅ Run checks immediately when a scene loads (not just after typing)
+        if self.live_checks_enabled and item.item_type == ItemType.SCENE:
+            self.live_checker.schedule(self.text_edit.toPlainText())
+        else:
+            # Clear underlines in non-scene views
+            self._spell_issues = []
+            self._grammar_issues = []
+            self.text_edit.setExtraSelections([])
+
     def on_text_changed(self):
         """Handle text changes"""
         self.update_word_count()
         self.content_changed.emit()
+        # schedule live checks (threaded + debounced)
+        if self.live_checker:
+            self.live_checker.schedule(self.text_edit.toPlainText())
 
     def update_word_count(self):
         """Update word count display with detailed statistics"""
@@ -571,20 +601,73 @@ class EditorWidget(QWidget):
         self.text_edit.paste()
 
     def show_editor_context_menu(self, position):
-        """Show context menu in editor"""
+        """Show context menu in editor (with spell + grammar suggestions)"""
         from PyQt6.QtWidgets import QMenu
 
         menu = self.text_edit.createStandardContextMenu()
-        cursor = self.text_edit.textCursor()
 
+        # Cursor at click position
+        click_cursor = self.text_edit.cursorForPosition(position)
+        pos = click_cursor.position()
+
+        # Find issues at cursor
+        spell_issue = self._find_spell_at_pos(pos)
+        grammar_issue = self._find_grammar_at_pos(pos)
+
+        # -------------------------
+        # Spelling menu
+        # -------------------------
+        if spell_issue:
+            menu.addSeparator()
+            spelling_menu = menu.addMenu("🧠 Spelling")
+
+            # Suggestions (if we have any)
+            if spell_issue.suggestions:
+                for sug in spell_issue.suggestions[:8]:
+                    act = spelling_menu.addAction(sug)
+                    act.triggered.connect(lambda _, s=sug, i=spell_issue: self._replace_range(i.start, i.length, s))
+            else:
+                spelling_menu.addAction("(No suggestions)").setEnabled(False)
+
+            spelling_menu.addSeparator()
+
+            ignore_act = spelling_menu.addAction("Ignore (this session)")
+            ignore_act.triggered.connect(lambda _, w=spell_issue.word: self._ignore_word_session(w))
+
+            add_act = spelling_menu.addAction("Add to dictionary")
+            add_act.triggered.connect(lambda _, w=spell_issue.word: self._add_custom_word(w))
+
+        # -------------------------
+        # Grammar menu
+        # -------------------------
+        if grammar_issue:
+            menu.addSeparator()
+            grammar_menu = menu.addMenu("🧩 Grammar")
+
+            if grammar_issue.suggestions:
+                for sug in grammar_issue.suggestions[:8]:
+                    act = grammar_menu.addAction(sug)
+                    act.triggered.connect(lambda _, s=sug, i=grammar_issue: self._replace_range(i.start, i.length, s))
+            else:
+                grammar_menu.addAction(grammar_issue.message).setEnabled(False)
+
+        # -------------------------
+        # Persona rewrite
+        # -------------------------
+        cursor = self.text_edit.textCursor()
         if cursor.hasSelection():
             menu.addSeparator()
 
-            ai_rewrite_action = QAction("🤖 Rewrite with AI", self)
-            ai_rewrite_action.triggered.connect(self.request_ai_rewrite)
-            menu.addAction(ai_rewrite_action)
+            rewrite_selection_action = QAction("🎨 Rewrite Selection with Persona", self)
+            rewrite_selection_action.triggered.connect(lambda: self.rewrite_selection_action_requested.emit())
+            menu.addAction(rewrite_selection_action)
 
-        menu.exec(self.text_edit.mapToGlobal(position))
+        menu.exec(self.text_edit.viewport().mapToGlobal(position))
+
+    def request_persona_rewrite(self):
+        """Request persona rewrite (emit signal to main window)"""
+        # Emit signal that main window will handle
+        # Or call parent.rewrite_selection_with_persona() if parent is MainWindow
 
     def request_ai_rewrite(self):
         """Request AI rewrite of selected text"""
@@ -692,3 +775,168 @@ class EditorWidget(QWidget):
                 selection-color: white;
             }
         """)
+
+    def rewrite_selection_with_persona(self):
+        """Rewrite selected text with persona"""
+        if not self.persona_manager:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        # Get selected text
+        cursor = self.editor.text_edit.textCursor()
+        selected_text = cursor.selectedText()
+
+        if not selected_text:
+            QMessageBox.warning(self, "No Selection", "Please select text to rewrite")
+            return
+
+        # Convert Qt paragraph separator to newline
+        selected_text = selected_text.replace('\u2029', '\n')
+
+        # Open rewrite dialog
+        from persona_rewrite_dialog import PersonaRewriteDialog
+        from ai_manager import ai_manager
+
+        dialog = PersonaRewriteDialog(
+            self,
+            ai_manager,
+            self.persona_manager,
+            selected_text,
+            scope="selection"
+        )
+
+        if dialog.exec():
+            # Apply rewritten text
+            rewritten = dialog.get_rewritten_text()
+            if rewritten:
+                cursor.insertText(rewritten)
+                QMessageBox.information(self, "Applied", "Rewrite applied successfully!")
+
+    def set_project_context(self, db_manager, project_id, persona_manager=None):
+        self.db_manager = db_manager
+        self.project_id = project_id
+        if persona_manager is not None:
+            self.persona_manager = persona_manager
+
+    def _on_check_result(self, result: CheckResult):
+        """Receive threaded results and underline issues."""
+        self._spell_issues = list(result.spell)
+        self._grammar_issues = list(result.grammar)
+        self._apply_issue_underlines()
+
+    def _apply_issue_underlines(self):
+        """Apply red (spelling) + blue (grammar) wavy underlines via ExtraSelections."""
+        doc = self.text_edit.document()
+        text = self.text_edit.toPlainText()
+        doc_len = len(text)
+
+        selections: list[QTextEdit.ExtraSelection] = []
+
+        def add_underline(start: int, length: int, kind: str):
+            if start < 0 or length <= 0:
+                return
+            if start >= doc_len:
+                return
+
+            end = min(start + length, doc_len)
+
+            cursor = QTextCursor(doc)
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+
+            fmt = QTextCharFormat()
+
+            # Spellcheck underline is rendered most reliably by Qt
+            if kind == "spell":
+                fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
+                fmt.setUnderlineColor(QColor("red"))
+            else:
+                fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
+                fmt.setUnderlineColor(QColor("blue"))
+
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            selections.append(sel)
+
+        for i in self._spell_issues:
+            add_underline(i.start, i.length, "spell")
+
+        for i in self._grammar_issues:
+            add_underline(i.start, i.length, "grammar")
+
+        self.text_edit.setExtraSelections(selections)
+
+    def _find_spell_at_pos(self, pos: int):
+        for i in self._spell_issues:
+            if i.start <= pos < (i.start + i.length):
+                return i
+        return None
+
+    def _find_grammar_at_pos(self, pos: int):
+        for i in self._grammar_issues:
+            if i.start <= pos < (i.start + i.length):
+                return i
+        return None
+
+    def _replace_range(self, start: int, length: int, replacement: str):
+        cursor = self.text_edit.textCursor()
+        cursor.beginEditBlock()
+        cursor.setPosition(start)
+        cursor.setPosition(start + length, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(replacement)
+        cursor.endEditBlock()
+
+        # Re-run checks after applying suggestion
+        if self.live_checks_enabled:
+            self.live_checker.schedule(self.text_edit.toPlainText())
+
+    def _ignore_word_session(self, word: str):
+        self.live_checker.ignore_word_session(word)
+        # remove existing underlines for that word by re-checking
+        if self.live_checks_enabled:
+            self.live_checker.schedule(self.text_edit.toPlainText())
+
+    def _add_custom_word(self, word: str):
+        self.live_checker.add_custom_word(word)
+        # TODO: persist to DB/file per project (see below)
+        if self.live_checks_enabled:
+            self.live_checker.schedule(self.text_edit.toPlainText())
+
+    def apply_live_issues(self, result):
+        """Apply spelling & grammar underlines from LiveTextChecker"""
+        selections = []
+
+        doc = self.text_edit.document()
+
+        # 🔴 Spelling (red squiggle)
+        for issue in result.spell:
+            cursor = QTextCursor(doc)
+            cursor.setPosition(issue.start)
+            cursor.setPosition(issue.start + issue.length, QTextCursor.MoveMode.KeepAnchor)
+
+            fmt = QTextCharFormat()
+            fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
+            fmt.setUnderlineColor(QColor("red"))
+
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            selections.append(sel)
+
+        # 🔵 Grammar (blue squiggle)
+        for issue in result.grammar:
+            cursor = QTextCursor(doc)
+            cursor.setPosition(issue.start)
+            cursor.setPosition(issue.start + issue.length, QTextCursor.MoveMode.KeepAnchor)
+
+            fmt = QTextCharFormat()
+            fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
+            fmt.setUnderlineColor(QColor("blue"))
+
+            sel = QTextEdit.ExtraSelection()
+            sel.cursor = cursor
+            sel.format = fmt
+            selections.append(sel)
+
+        self.text_edit.setExtraSelections(selections)

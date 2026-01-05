@@ -3,7 +3,8 @@
 Novelist AI - A novel writing application with AI-powered analysis
 Main application entry point
 """
-
+import json
+import os
 import sys
 from typing import Dict, Any
 
@@ -47,6 +48,8 @@ class MainWindow(QMainWindow):
         self.restore_settings()
         self.insight_db = None
         self.insight_service = None
+        self.persona_manager = None
+        self.ai_manager = ai_manager
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -71,7 +74,9 @@ class MainWindow(QMainWindow):
         # Center panel - Editor
         self.editor = EditorWidget()
         self.editor.content_changed.connect(self.on_content_changed)
-        self.editor.rewrite_requested.connect(self.on_ai_rewrite_requested)
+        self.editor.rewrite_requested.connect(self.rewrite_selection_with_persona)
+        self.editor.rewrite_selection_action_requested.connect(self.rewrite_selection_with_persona)
+        self.editor.rewrite_scene_action_requested.connect(self.rewrite_scene_with_persona)
         self.project_tree.ai_fill_requested.connect(self.on_ai_fill_scene)
 
         # Right panel - Metadata
@@ -100,6 +105,7 @@ class MainWindow(QMainWindow):
         self.create_menu_bar()
         self.create_toolbar()
         self.project_tree.ai_analyze_requested.connect(self.analyze_chapter_ai)
+        self.project_tree.ai_fix_requested.connect(self.fix_chapter_ai)
 
         # Add widgets to splitter
         main_splitter.addWidget(self.project_tree)
@@ -119,6 +125,7 @@ class MainWindow(QMainWindow):
         self.autosave.saving_finished.connect(lambda: self.statusBar.showMessage("Saved ✓", 2000))
         # Store splitter for settings
         self.main_splitter = main_splitter
+
 
     def create_menu_bar(self):
         """Create the menu bar"""
@@ -205,7 +212,23 @@ class MainWindow(QMainWindow):
         paste_action.setShortcut(QKeySequence.StandardKey.Paste)
         paste_action.triggered.connect(self.editor.paste)
         edit_menu.addAction(paste_action)
+        # Writing menu
+        writing_menu = menubar.addMenu("&Writing")
 
+        manage_personas_action = QAction("✍️ Manage Personas...", self)
+        manage_personas_action.triggered.connect(self.manage_writing_personas)
+        writing_menu.addAction(manage_personas_action)
+
+        writing_menu.addSeparator()
+
+        rewrite_selection_action = QAction("🎨 Rewrite Selection with Persona", self)
+        rewrite_selection_action.setShortcut("Ctrl+Shift+R")
+        rewrite_selection_action.triggered.connect(self.rewrite_selection_with_persona)
+        writing_menu.addAction(rewrite_selection_action)
+
+        rewrite_scene_action = QAction("📄 Rewrite Entire Scene", self)
+        rewrite_scene_action.triggered.connect(self.rewrite_scene_with_persona)
+        writing_menu.addAction(rewrite_scene_action)
         # Project menu
         project_menu = menubar.addMenu("&Project")
 
@@ -273,7 +296,7 @@ class MainWindow(QMainWindow):
 
         ai_menu.addSeparator()
 
-        story_insights_action = QAction("📊 &Story Insights (Comprehensive)", self)
+        story_insights_action = QAction("📊 Deep Insights (Comprehensive)", self)
         story_insights_action.triggered.connect(self.show_story_insights)
         ai_menu.addAction(story_insights_action)
         ai_menu.addSeparator()
@@ -281,6 +304,11 @@ class MainWindow(QMainWindow):
         view_insights_action = QAction("📊 View Story Insights", self)
         view_insights_action.triggered.connect(self.view_story_insights)
         ai_menu.addAction(view_insights_action)
+        ai_menu.addSeparator()
+
+        batch_analyze_action = QAction("🚀 Analyze All Chapters", self)
+        batch_analyze_action.triggered.connect(self.batch_analyze_chapters)
+        ai_menu.addAction(batch_analyze_action)
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
@@ -343,6 +371,10 @@ class MainWindow(QMainWindow):
                     self.db_manager,
                     self.insight_db
                 )
+                # Initialize persona manager
+                from writing_persona import PersonaManager
+                self.persona_manager = PersonaManager(self.db_manager, self.current_project.id)
+                self.editor_widget.set_project_context(self.db_manager, self.current_project.id, self.persona_manager)
                 # Update UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
@@ -373,6 +405,7 @@ class MainWindow(QMainWindow):
 
             if projects:
                 self.current_project = projects[0]  # SET PROJECT FIRST
+                self.editor.set_project_context(self.db_manager, self.current_project.id, self.persona_manager)
 
                 # NOW initialize AI integration (after current_project exists)
                 self.ai_integration = AIFeatures(self, self.db_manager, self.current_project.id)
@@ -385,7 +418,9 @@ class MainWindow(QMainWindow):
                 )
                 # Initialize story extractor
                 self.story_extractor = StoryExtractor(self, self.db_manager, self.current_project.id)
-
+                # Initialize persona manager
+                from writing_persona import PersonaManager
+                self.persona_manager = PersonaManager(self.db_manager, self.current_project.id)
                 # Load UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
@@ -405,23 +440,89 @@ class MainWindow(QMainWindow):
         # Just update the status
         self.statusBar.showMessage("Project saved", 3000)
 
+
     def export_project(self, format_type: str):
         """Export project to various formats"""
         if not self.current_project:
             QMessageBox.warning(self, "No Project", "No project is currently open")
             return
 
-        # TODO: Implement export functionality
+        format_type = format_type.lower()
+
+        if format_type == "docx":
+            from PyQt6.QtWidgets import QFileDialog
+            from docx_exporter import DocxExporter
+
+            # Ask user where to save
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export Project to Word",
+                f"{self.current_project.name}.docx",
+                "Word Documents (*.docx)"
+            )
+
+            if not file_path:
+                return  # user cancelled
+
+            try:
+                exporter = DocxExporter()
+                chapters, scenes = exporter.export_project(
+                    db_manager=self.db_manager,
+                    project_id=self.current_project.id,
+                    output_path=file_path,
+                    book_title=self.current_project.name,
+                    include_scene_breaks=False  # flip to True if you want ***
+                )
+
+                QMessageBox.information(
+                    self,
+                    "Export Complete",
+                    f"Exported successfully!\n\n"
+                    f"Chapters: {chapters}\n"
+                    f"Scenes: {scenes}\n\n"
+                    f"File saved to:\n{file_path}"
+                )
+
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    "Export Failed",
+                    f"An error occurred while exporting:\n\n{str(e)}"
+                )
+            return
+
+        # ---- Future formats ----
         QMessageBox.information(
             self,
             "Export",
-            f"Export to {format_type} coming soon!"
+            f"Export to {format_type.upper()} coming soon!"
         )
 
     def show_settings(self):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
         dialog.exec()
+
+    def _custom_dict_path(self):
+        base = os.path.dirname(self.db_manager.db_path)
+        return os.path.join(base, f".custom_dict_{self.current_project.id}.json")
+
+    def load_custom_dict(self):
+        path = self._custom_dict_path()
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            words = set(data.get("words", []))
+        else:
+            words = set()
+
+        self.editor.live_checker.custom_words = set(w.lower() for w in words)
+
+    def save_custom_dict(self):
+        path = self._custom_dict_path()
+        data = {"words": sorted(list(self.editor.live_checker.custom_words))}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
 
     def on_item_selected(self, item_id: str):
         """Handle item selection in project tree"""
@@ -468,6 +569,7 @@ class MainWindow(QMainWindow):
     def on_content_changed(self):
         """Handle content changes in editor"""
         self.autosave.request_save()
+
 
     def on_metadata_changed(self):
         """Handle metadata changes"""
@@ -881,6 +983,171 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             # Refresh insights after fix applied
             self.chapter_insights.refresh()
+
+    def batch_analyze_chapters(self):
+        """Analyze all chapters in batch"""
+        if not self.current_project:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not self.insight_service:
+            QMessageBox.warning(self, "No Analysis", "Insight service not initialized")
+            return
+
+        # Show batch analysis dialog
+        from batch_analysis_dialog import BatchAnalysisDialog
+        dialog = BatchAnalysisDialog(
+            self,
+            self.db_manager,
+            self.current_project.id,
+            self.insight_service
+        )
+        dialog.exec()
+
+    def manage_writing_personas(self):
+        """Open persona manager"""
+        if not self.persona_manager:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        from persona_manager_dialog import PersonaManagerDialog
+        dialog = PersonaManagerDialog(self, self.persona_manager)
+        dialog.exec()
+
+    def rewrite_selection_with_persona(self):
+        """Rewrite selected text with persona"""
+        if not self.persona_manager:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        # Get selected text
+        cursor = self.editor.text_edit.textCursor()
+        selected_text = cursor.selectedText()
+
+        if not selected_text:
+            QMessageBox.warning(self, "No Selection", "Please select text to rewrite")
+            return
+
+        # Convert Qt paragraph separator to newline
+        selected_text = selected_text.replace('\u2029', '\n')
+
+        # Open rewrite dialog
+        from persona_rewrite_dialog import PersonaRewriteDialog
+        from ai_manager import ai_manager
+
+        dialog = PersonaRewriteDialog(
+            self,
+            ai_manager,
+            self.persona_manager,
+            selected_text,
+            scope="selection"
+        )
+
+        if dialog.exec():
+            # Apply rewritten text
+            rewritten = dialog.get_rewritten_text()
+            if rewritten:
+                cursor.insertText(rewritten)
+                QMessageBox.information(self, "Applied", "Rewrite applied successfully!")
+
+    def rewrite_scene_with_persona(self):
+        """Rewrite entire current scene with persona"""
+        if not self.persona_manager:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        # Get current scene
+        current_item = self.editor.current_item
+        if not current_item:
+            QMessageBox.warning(self, "No Scene", "Please open a scene to rewrite")
+            return
+
+        from models.project import ItemType
+        if current_item.item_type != ItemType.SCENE:
+            QMessageBox.warning(self, "Not a Scene", "Please open a scene to rewrite")
+            return
+
+        # Get scene content
+        from text_utils import html_to_plaintext
+        scene_text = html_to_plaintext(current_item.content or "")
+
+        if not scene_text.strip():
+            QMessageBox.warning(self, "Empty Scene", "Scene has no content to rewrite")
+            return
+
+        # Confirm
+        reply = QMessageBox.question(
+            self,
+            "Rewrite Scene",
+            f"Rewrite entire scene '{current_item.name}'?\n\n"
+            f"This will generate a new version based on your selected persona.\n"
+            f"You can review before applying.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Open rewrite dialog
+        from persona_rewrite_dialog import PersonaRewriteDialog
+        from ai_manager import ai_manager
+
+        dialog = PersonaRewriteDialog(
+            self,
+            ai_manager,
+            self.persona_manager,
+            scene_text,
+            scope="scene"
+        )
+
+        if dialog.exec():
+            # Apply rewritten text
+            rewritten = dialog.get_rewritten_text()
+            if rewritten:
+                from text_utils import plaintext_to_html
+                current_item.content = plaintext_to_html(rewritten)
+                self.db_manager.save_item(self.current_project.id, current_item)
+
+                # Reload in editor
+                self.editor.load_item(current_item, self.db_manager, self.current_project.id)
+
+                QMessageBox.information(self, "Applied", "Scene rewritten successfully!")
+
+    def fix_chapter_ai(self, chapter_id: str):
+        """Fix chapter issues with AI"""
+        if not self.current_project or not self.insight_service:
+            QMessageBox.warning(self, "Not Ready", "Please ensure project is loaded and AI is configured")
+            return
+
+        # Get chapter name
+        chapter = self.db_manager.load_item(chapter_id)
+        if not chapter:
+            return
+
+        # Open AI fix dialog
+        from ai_fix_chapter_dialog import AIFixChapterDialog
+
+        dialog = AIFixChapterDialog(
+            self,
+            self.ai_manager,
+            self.db_manager,
+            self.current_project.id,
+            chapter_id,
+            chapter.name,
+            self.insight_service
+        )
+
+        if dialog.exec():
+            # Refresh editor if currently viewing this chapter
+            if self.editor.current_item and self.editor.current_item.id == chapter_id:
+                self.editor.load_item(chapter, self.db_manager, self.current_project.id)
+
+            QMessageBox.information(
+                self,
+                "Analysis Recommended",
+                "Chapter has been fixed!\n\n"
+                "Run 'AI Analyze Chapter' again to verify the fixes."
+            )
 
 def main():
     """Main entry point for the application"""

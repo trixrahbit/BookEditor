@@ -1,9 +1,9 @@
-import datetime
 import hashlib
 import sqlite3
 import json
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from models.project import (
@@ -369,30 +369,37 @@ class InsightDatabase:
     Stores AI analysis results and meta-layer artifacts (story bible, thread maps, etc).
     """
 
-    def __init__(self, conn: sqlite3.Connection):
-        self.conn = conn
-        self.conn.row_factory = sqlite3.Row
+    def __init__(self, db_manager):
+        """
+        Initialize with DatabaseManager instead of raw connection
+        Args:
+            db_manager: DatabaseManager instance (not sqlite3.Connection)
+        """
+        self.db_manager = db_manager
+        self.conn = db_manager.conn
+        self.ensure_schema()
 
     def ensure_schema(self) -> None:
-        cur = self.conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS insights (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                scope TEXT NOT NULL,
-                scope_id TEXT,
-                insight_type TEXT NOT NULL,
-                payload_json TEXT NOT NULL,
-                source_hash TEXT NOT NULL,
-                created TEXT NOT NULL,
-                modified TEXT NOT NULL
-            )
-        """)
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_scope ON insights(project_id, scope, scope_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_type ON insights(project_id, insight_type)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_hash ON insights(project_id, scope, scope_id, insight_type, source_hash)")
-        self.conn.commit()
+        with self.db_manager._lock:
+            cur = self.conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS insights (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    scope_id TEXT,
+                    insight_type TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    source_hash TEXT NOT NULL,
+                    created TEXT NOT NULL,
+                    modified TEXT NOT NULL
+                )
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_project ON insights(project_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_scope ON insights(project_id, scope, scope_id)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_type ON insights(project_id, insight_type)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_insights_hash ON insights(project_id, scope, scope_id, insight_type, source_hash)")
+            self.conn.commit()
 
     def upsert(self,
                insight_id: str,
@@ -403,66 +410,71 @@ class InsightDatabase:
                payload: Dict[str, Any],
                source_hash: str) -> None:
         now = utc_now_iso()
-        cur = self.conn.cursor()
-        cur.execute("""
-            INSERT INTO insights (id, project_id, scope, scope_id, insight_type, payload_json, source_hash, created, modified)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                payload_json=excluded.payload_json,
-                source_hash=excluded.source_hash,
-                modified=excluded.modified
-        """, (
-            insight_id,
-            project_id,
-            scope,
-            scope_id,
-            insight_type,
-            json.dumps(payload, ensure_ascii=False),
-            source_hash,
-            now,
-            now
-        ))
-        self.conn.commit()
+        with self.db_manager._lock:
+            cur = self.conn.cursor()
+            cur.execute("""
+                INSERT INTO insights (id, project_id, scope, scope_id, insight_type, payload_json, source_hash, created, modified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    payload_json=excluded.payload_json,
+                    source_hash=excluded.source_hash,
+                    modified=excluded.modified
+            """, (
+                insight_id,
+                project_id,
+                scope,
+                scope_id,
+                insight_type,
+                json.dumps(payload, ensure_ascii=False),
+                source_hash,
+                now,
+                now
+            ))
+            self.conn.commit()
 
     def get_latest(self, project_id: str, scope: str, scope_id: Optional[str], insight_type: str) -> Optional[InsightRecord]:
-        cur = self.conn.cursor()
-        cur.execute("""
-            SELECT * FROM insights
-            WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
-              AND insight_type=?
-            ORDER BY modified DESC
-            LIMIT 1
-        """, (project_id, scope, scope_id, scope_id, insight_type))
-        row = cur.fetchone()
+        with self.db_manager._lock:
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT * FROM insights
+                WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
+                  AND insight_type=?
+                ORDER BY modified DESC
+                LIMIT 1
+            """, (project_id, scope, scope_id, scope_id, insight_type))
+            row = cur.fetchone()
         return self._row_to_record(row) if row else None
 
     def exists_with_hash(self, project_id: str, scope: str, scope_id: Optional[str], insight_type: str, source_hash: str) -> bool:
-        cur = self.conn.cursor()
-        cur.execute("""
-            SELECT 1 FROM insights
-            WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
-              AND insight_type=? AND source_hash=?
-            LIMIT 1
-        """, (project_id, scope, scope_id, scope_id, insight_type, source_hash))
-        return cur.fetchone() is not None
+        with self.db_manager._lock:
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT 1 FROM insights
+                WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
+                  AND insight_type=? AND source_hash=?
+                LIMIT 1
+            """, (project_id, scope, scope_id, scope_id, insight_type, source_hash))
+            return cur.fetchone() is not None
 
     def list_by_scope(self, project_id: str, scope: str, scope_id: Optional[str]) -> List[InsightRecord]:
-        cur = self.conn.cursor()
-        cur.execute("""
-            SELECT * FROM insights
-            WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
-            ORDER BY modified DESC
-        """, (project_id, scope, scope_id, scope_id))
-        rows = cur.fetchall()
+        with self.db_manager._lock:
+            cur = self.conn.cursor()
+            cur.execute("""
+                SELECT * FROM insights
+                WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
+                ORDER BY modified DESC
+            """, (project_id, scope, scope_id, scope_id))
+            rows = cur.fetchall()
         return [self._row_to_record(r) for r in rows]
 
     def delete_scope(self, project_id: str, scope: str, scope_id: Optional[str]) -> None:
-        cur = self.conn.cursor()
-        cur.execute("""
-            DELETE FROM insights
-            WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
-        """, (project_id, scope, scope_id, scope_id))
-        self.conn.commit()
+        with self.db_manager._lock:
+            cur = self.conn.cursor()
+            cur.execute("""
+                DELETE FROM insights
+                WHERE project_id=? AND scope=? AND (scope_id IS ? OR scope_id=?)
+            """, (project_id, scope, scope_id, scope_id))
+            self.conn.commit()
 
     def _row_to_record(self, row: sqlite3.Row) -> InsightRecord:
         return InsightRecord(
