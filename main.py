@@ -113,13 +113,29 @@ class MainWindow(QMainWindow):
         self.ai_manager = ai_manager
 
     def _safe_slot(self, func: Callable) -> Callable:
-        """Wrap a slot to prevent exceptions from crashing the app."""
         logger = logging.getLogger("novelist_ai")
 
         @wraps(func)
         def wrapper(*args, **kwargs):
             try:
+                # First try normal call (works for item_selected(item_id), etc.)
                 return func(*args, **kwargs)
+            except TypeError as te:
+                # If it's a mismatch in args (common from QAction.triggered(bool)),
+                # retry with no args.
+                try:
+                    return func()
+                except Exception:
+                    logger.exception("Error in slot after retry (no-args): %s", getattr(func, "__name__", repr(func)))
+                    log_hint = f"\n\nLog file: {LOG_PATH}" if LOG_PATH else ""
+                    QMessageBox.critical(
+                        self,
+                        "Unexpected Error",
+                        "An unexpected error occurred. Please check the logs for details."
+                        f"{log_hint}",
+                    )
+                # If the retry succeeded, we're done
+                return None
             except Exception:
                 logger.exception("Error in slot: %s", getattr(func, "__name__", repr(func)))
                 log_hint = f"\n\nLog file: {LOG_PATH}" if LOG_PATH else ""
@@ -149,7 +165,7 @@ class MainWindow(QMainWindow):
 
         # Left panel - Project tree
         self.project_tree = ProjectTreeWidget()
-        self.project_tree.setMinimumWidth(280)
+        self.project_tree.setMinimumWidth(240)
         self.project_tree.item_selected.connect(self._safe_slot(self.on_item_selected))
 
         # Center panel - Editor
@@ -216,7 +232,7 @@ class MainWindow(QMainWindow):
         # Store splitter for settings
         self.main_splitter = main_splitter
         self._right_panel_sizes = None
-        self._right_panel_collapsed_width = 36
+        self._right_panel_collapsed_width = 64
 
     def on_properties_panel_toggled(self, collapsed: bool):
         """Collapse or expand the properties panel within the splitter."""

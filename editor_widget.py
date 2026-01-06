@@ -6,7 +6,7 @@ import re
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QToolBar, QPushButton,
-    QFontComboBox, QComboBox, QColorDialog, QMessageBox
+    QFontComboBox, QComboBox, QColorDialog, QMessageBox, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QFont, QAction, QTextCharFormat, QColor, QTextListFormat, QTextCursor, QTextDocument
@@ -111,9 +111,11 @@ class EditorWidget(QWidget):
         self.toolbar = toolbar
         self.toolbar_compact = False
 
-        # Font Family
         self.font_combo = QFontComboBox()
         self.font_combo.setCurrentFont(QFont("Georgia"))
+        self.font_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.font_combo.setMinimumWidth(80)  # was effectively large
+        self.font_combo.setMaximumWidth(220)  # cap it so it can't bully the toolbar
         self.font_combo.currentFontChanged.connect(self.change_font_family)
         toolbar.addWidget(self.font_combo)
 
@@ -122,6 +124,8 @@ class EditorWidget(QWidget):
         # Font Size
         self.font_size_combo = QComboBox()
         self.font_size_combo.setEditable(True)
+        self.font_size_combo.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.font_size_combo.setMinimumWidth(55)
         sizes = ['8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48', '72']
         self.font_size_combo.addItems(sizes)
         self.font_size_combo.setCurrentText('12')
@@ -260,7 +264,6 @@ class EditorWidget(QWidget):
         self.text_edit.cursorPositionChanged.connect(self.update_format_actions)
 
     def set_toolbar_compact(self, compact: bool):
-        """Toggle toolbar into a compact layout when space is constrained."""
         if self.toolbar_compact == compact:
             return
         self.toolbar_compact = compact
@@ -272,6 +275,13 @@ class EditorWidget(QWidget):
 
         icon_size = QSize(16, 16) if compact else QSize(18, 18)
         self.toolbar.setIconSize(icon_size)
+
+        # Optional: tighten spacing
+        self.toolbar.setStyleSheet(
+            "QToolBar#editorToolbar { padding: 4px; spacing: 1px; }"
+            if compact else
+            "QToolBar#editorToolbar { padding: 8px; spacing: 2px; }"
+        )
 
     def html_to_plaintext(self, html: str) -> str:
         """Convert stored HTML to plain text while preserving paragraph breaks."""
@@ -956,3 +966,14 @@ class EditorWidget(QWidget):
             selections.append(sel)
 
         self.text_edit.setExtraSelections(selections)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        # Heuristic thresholds — tweak these if you want
+        w = self.width()
+
+        # Compact when editor is narrow (usually because right panel is open)
+        should_compact = w < 780
+
+        self.set_toolbar_compact(should_compact)

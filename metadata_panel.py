@@ -4,8 +4,8 @@ Metadata panel for displaying and editing item properties
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFormLayout,
-    QLineEdit, QTextEdit, QComboBox, QPushButton, QFrame, QToolButton
-)
+    QLineEdit, QTextEdit, QComboBox, QPushButton, QFrame, QToolButton,
+    QSizePolicy, QSpacerItem)
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from models.project import (
@@ -36,13 +36,16 @@ class MetadataPanel(QWidget):
         # Title
         title_widget = QWidget()
         title_widget.setObjectName("metadataTitle")
-        title_layout = QHBoxLayout(title_widget)
-        title_layout.setContentsMargins(15, 15, 15, 15)
+        self.title_layout = QHBoxLayout(title_widget)
+        self.title_layout.setContentsMargins(15, 15, 15, 15)
 
         self.title_label = QLabel("Properties")
         self.title_label.setObjectName("titleLabel")
-        title_layout.addWidget(self.title_label)
-        title_layout.addStretch()
+        self.title_layout.addWidget(self.title_label)
+        self.title_spacer = QSpacerItem(
+            0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self.title_layout.addItem(self.title_spacer)
 
         self.toggle_button = QToolButton()
         self.toggle_button.setObjectName("metadataToggle")
@@ -50,10 +53,10 @@ class MetadataPanel(QWidget):
         self.toggle_button.setToolTip("Collapse properties panel")
         self.toggle_button.setCheckable(True)
         self.toggle_button.clicked.connect(self.toggle_collapsed)
-        title_layout.addWidget(self.toggle_button)
+        self.title_layout.addWidget(self.toggle_button)
 
         layout.addWidget(title_widget)
-
+        self.title_widget = title_widget
         # Scrollable form area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -86,14 +89,22 @@ class MetadataPanel(QWidget):
             self.scroll.setVisible(False)
             self.save_button.setVisible(False)
             self.title_label.setVisible(False)
+            if self.title_spacer is not None:
+                self.title_layout.removeItem(self.title_spacer)
             self.toggle_button.setText("+")
             self.toggle_button.setToolTip("Expand properties panel")
+            self.title_layout.setContentsMargins(6, 6, 6, 6)
+            self.title_layout.setAlignment(self.toggle_button, Qt.AlignmentFlag.AlignLeft)
         else:
             self.scroll.setVisible(True)
             self.save_button.setVisible(True)
             self.title_label.setVisible(True)
+            if self.title_spacer is not None:
+                self.title_layout.addItem(self.title_spacer)
             self.toggle_button.setText("−")
             self.toggle_button.setToolTip("Collapse properties panel")
+            self.title_layout.setContentsMargins(15, 15, 15, 15)
+            self.title_layout.setAlignment(self.toggle_button, Qt.AlignmentFlag.AlignRight)
         self.collapse_toggled.emit(self.is_collapsed)
 
     def load_item(self, item, db_manager: DatabaseManager, project_id: str):
