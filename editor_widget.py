@@ -2,6 +2,7 @@
 Enhanced rich text editor widget with AI analysis button
 """
 
+import os
 import re
 
 from PyQt6.QtWidgets import (
@@ -36,14 +37,16 @@ class EditorWidget(QWidget):
         self._grammar_issues: list[GrammarIssue] = []
 
         # Initialize live spell/grammar checker
-        JAVA_PATH = r"C:\Program Files\Java\jdk-25\bin\java.exe"
+        java_path = os.environ.get("JAVA_PATH")
+        if java_path and not os.path.exists(java_path):
+            java_path = None
         self.live_checker = LiveTextChecker(
             parent=self,
             language="en_US",
             debounce_ms=650,
             do_spell=True,
             do_grammar=True,
-            java_path=JAVA_PATH
+            java_path=java_path
         )
         self.live_checker.result_ready.connect(self._on_check_result)
         self.live_checker.debug.connect(lambda msg: print(f"[LiveCheck] {msg}"))

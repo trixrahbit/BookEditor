@@ -67,6 +67,7 @@ class _LTWorker(QObject):
         self.java_path = java_path  # optional explicit java.exe path
 
         self._tool = None
+        self._using_public_api = False
         self._ignore_words: Set[str] = set()
         self._custom_words: Set[str] = set()
 
@@ -110,22 +111,32 @@ class _LTWorker(QObject):
         # Ensure java is visible before creating tool
         self._ensure_java_visible()
 
-        # ✅ LOCAL tool (no rate limits)
-        # language_tool_python supports java_path in newer versions; if yours doesn’t,
-        # our PATH/JAVA_HOME injection above still solves it.
         try:
-            if self.java_path:
-                self._tool = language_tool_python.LanguageTool(
-                    self.language,
-                    java_path=self.java_path
-                )
-            else:
+            # ✅ LOCAL tool (no rate limits)
+            # language_tool_python supports java_path in newer versions; if yours doesn’t,
+            # our PATH/JAVA_HOME injection above still solves it.
+            try:
+                if self.java_path:
+                    self._tool = language_tool_python.LanguageTool(
+                        self.language,
+                        java_path=self.java_path
+                    )
+                else:
+                    self._tool = language_tool_python.LanguageTool(self.language)
+            except TypeError:
+                # Older language_tool_python without java_path kwarg
                 self._tool = language_tool_python.LanguageTool(self.language)
-        except TypeError:
-            # Older language_tool_python without java_path kwarg
-            self._tool = language_tool_python.LanguageTool(self.language)
-
-        self.debug.emit("[LiveTextChecker] LanguageTool initialized (local).")
+            self._using_public_api = False
+            self.debug.emit("[LiveTextChecker] LanguageTool initialized (local).")
+        except Exception as e:
+            self.debug.emit(f"[LiveTextChecker] Local LanguageTool init failed: {e}. "
+                            "Falling back to public API.")
+            try:
+                self._tool = language_tool_python.LanguageToolPublicAPI(self.language)
+                self._using_public_api = True
+                self.debug.emit("[LiveTextChecker] LanguageTool initialized (public API).")
+            except Exception as api_error:
+                raise RuntimeError(f"Failed to initialize LanguageTool: {api_error}") from api_error
 
     @pyqtSlot(str)
     def check_text(self, text: str):
@@ -134,11 +145,11 @@ class _LTWorker(QObject):
                 self.result_ready.emit(CheckResult(spell=[], grammar=[]))
                 return
 
-            # Tool only needed if grammar is enabled
-            if self.do_grammar:
+            # Tool needed if either spelling or grammar is enabled
+            if self.do_spell or self.do_grammar:
                 self._ensure_tool()
 
-            matches = self._tool.check(text) if (self.do_grammar and self._tool) else []
+            matches = self._tool.check(text) if self._tool else []
 
             spell: List[SpellIssue] = []
             grammar: List[GrammarIssue] = []
@@ -174,6 +185,41 @@ class _LTWorker(QObject):
             self.result_ready.emit(CheckResult(spell=spell, grammar=grammar))
 
         except Exception as e:
+            if not self._using_public_api:
+                try:
+                    self._tool = None
+                    self._ensure_tool()
+                    matches = self._tool.check(text) if self._tool else []
+                    spell: List[SpellIssue] = []
+                    grammar: List[GrammarIssue] = []
+                    for m in matches:
+                        start = int(getattr(m, "offset", 0))
+                        length = int(getattr(m, "errorLength", 0))
+                        if length <= 0:
+                            continue
+                        frag = text[start:start + length].strip()
+                        low = frag.lower()
+                        if low in self._ignore_words or low in self._custom_words:
+                            continue
+                        issue_type = str(getattr(m, "ruleIssueType", "")).lower()
+                        replacements = list(getattr(m, "replacements", []) or [])[:8]
+                        if self.do_spell and issue_type == "misspelling":
+                            spell.append(SpellIssue(start=start, length=length, word=frag, suggestions=replacements))
+                        else:
+                            if self.do_grammar:
+                                grammar.append(
+                                    GrammarIssue(
+                                        start=start,
+                                        length=length,
+                                        message=str(getattr(m, "message", "Possible issue")),
+                                        replacements=replacements,
+                                    )
+                                )
+                    self.result_ready.emit(CheckResult(spell=spell, grammar=grammar))
+                    return
+                except Exception as retry_error:
+                    self.result_ready.emit(CheckResult(spell=[], grammar=[], error=str(retry_error)))
+                    return
             self.result_ready.emit(CheckResult(spell=[], grammar=[], error=str(e)))
 
 
