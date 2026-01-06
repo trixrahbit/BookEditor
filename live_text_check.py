@@ -39,7 +39,7 @@ class GrammarIssue:
     start: int
     length: int
     message: str
-    replacements: List[str] = field(default_factory=list)
+    suggestions: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -155,8 +155,13 @@ class _LTWorker(QObject):
             grammar: List[GrammarIssue] = []
 
             for m in matches:
-                start = int(getattr(m, "offset", 0))
-                length = int(getattr(m, "errorLength", 0))
+                def get_attr(obj, attr, default=None):
+                    if isinstance(obj, dict):
+                        return obj.get(attr, default)
+                    return getattr(obj, attr, default)
+
+                start = int(get_attr(m, "offset", 0))
+                length = int(get_attr(m, "error_length", get_attr(m, "errorLength", 0)))
                 if length <= 0:
                     continue
 
@@ -166,21 +171,22 @@ class _LTWorker(QObject):
                 if low in self._ignore_words or low in self._custom_words:
                     continue
 
-                issue_type = str(getattr(m, "ruleIssueType", "")).lower()
-                replacements = list(getattr(m, "replacements", []) or [])[:8]
+                issue_type = str(get_attr(m, "rule_issue_type", get_attr(m, "ruleIssueType", "")) or "").lower()
+                category = str(get_attr(m, "category", "") or "").lower()
+                replacements = list(get_attr(m, "suggestions", []) or [])[:8]
 
-                if self.do_spell and issue_type == "misspelling":
+                # Spelling often comes with category 'TYPOS' or rule_issue_type 'misspelling'
+                if self.do_spell and (issue_type == "misspelling" or category == "typos" or category == "spelling"):
                     spell.append(SpellIssue(start=start, length=length, word=frag, suggestions=replacements))
-                else:
-                    if self.do_grammar:
-                        grammar.append(
-                            GrammarIssue(
-                                start=start,
-                                length=length,
-                                message=str(getattr(m, "message", "Possible issue")),
-                                replacements=replacements,
-                            )
+                elif self.do_grammar:
+                    grammar.append(
+                        GrammarIssue(
+                            start=start,
+                            length=length,
+                            message=str(get_attr(m, "message", "Possible issue")),
+                            suggestions=replacements,
                         )
+                    )
 
             self.result_ready.emit(CheckResult(spell=spell, grammar=grammar))
 
@@ -193,28 +199,33 @@ class _LTWorker(QObject):
                     spell: List[SpellIssue] = []
                     grammar: List[GrammarIssue] = []
                     for m in matches:
-                        start = int(getattr(m, "offset", 0))
-                        length = int(getattr(m, "errorLength", 0))
+                        def get_attr(obj, attr, default=None):
+                            if isinstance(obj, dict):
+                                return obj.get(attr, default)
+                            return getattr(obj, attr, default)
+
+                        start = int(get_attr(m, "offset", 0))
+                        length = int(get_attr(m, "error_length", get_attr(m, "errorLength", 0)))
                         if length <= 0:
                             continue
                         frag = text[start:start + length].strip()
                         low = frag.lower()
                         if low in self._ignore_words or low in self._custom_words:
                             continue
-                        issue_type = str(getattr(m, "ruleIssueType", "")).lower()
-                        replacements = list(getattr(m, "replacements", []) or [])[:8]
-                        if self.do_spell and issue_type == "misspelling":
+                        issue_type = str(get_attr(m, "rule_issue_type", get_attr(m, "ruleIssueType", "")) or "").lower()
+                        category = str(get_attr(m, "category", "") or "").lower()
+                        replacements = list(get_attr(m, "suggestions", []) or [])[:8]
+                        if self.do_spell and (issue_type == "misspelling" or category == "typos" or category == "spelling"):
                             spell.append(SpellIssue(start=start, length=length, word=frag, suggestions=replacements))
-                        else:
-                            if self.do_grammar:
-                                grammar.append(
-                                    GrammarIssue(
-                                        start=start,
-                                        length=length,
-                                        message=str(getattr(m, "message", "Possible issue")),
-                                        replacements=replacements,
-                                    )
+                        elif self.do_grammar:
+                            grammar.append(
+                                GrammarIssue(
+                                    start=start,
+                                    length=length,
+                                    message=str(get_attr(m, "message", "Possible issue")),
+                                    suggestions=replacements,
                                 )
+                            )
                     self.result_ready.emit(CheckResult(spell=spell, grammar=grammar))
                     return
                 except Exception as retry_error:
@@ -226,6 +237,7 @@ class _LTWorker(QObject):
 class LiveTextChecker(QObject):
     result_ready = pyqtSignal(object)  # CheckResult
     debug = pyqtSignal(str)
+    _request_check = pyqtSignal(str)
 
     def __init__(
         self,
@@ -256,6 +268,7 @@ class LiveTextChecker(QObject):
 
         self._worker.result_ready.connect(self._on_result)
         self._worker.debug.connect(self.debug)
+        self._request_check.connect(self._worker.check_text)
 
         self._thread.start()
 
@@ -287,7 +300,7 @@ class LiveTextChecker(QObject):
     def _fire_check(self):
         self._worker.set_ignore_words(self._ignore_words_session)
         self._worker.set_custom_words(self._custom_words)
-        QTimer.singleShot(0, lambda: self._worker.check_text(self._pending_text))
+        self._request_check.emit(self._pending_text)
 
     @pyqtSlot(object)
     def _on_result(self, result: CheckResult):

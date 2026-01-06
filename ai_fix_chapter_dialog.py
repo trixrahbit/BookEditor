@@ -8,8 +8,40 @@ from PyQt6.QtWidgets import (
     QGroupBox, QMessageBox, QTabWidget, QSplitter
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtGui import QTextCursor
 from typing import List, Dict, Any, Optional
 import time
+import difflib
+
+
+def get_highlighted_diffs(old_text: str, new_text: str):
+    """
+    Returns (highlighted_old_html, highlighted_new_html)
+    """
+    # Character-based diffing for finer highlights
+    s = difflib.SequenceMatcher(None, old_text, new_text)
+    
+    old_html = ""
+    new_html = ""
+    
+    for tag, i1, i2, j1, j2 in s.get_opcodes():
+        if tag == 'equal':
+            chunk = old_text[i1:i2].replace('\n', '<br>')
+            old_html += chunk
+            new_html += chunk
+        elif tag == 'delete':
+            chunk = old_text[i1:i2].replace('\n', '<br>')
+            old_html += f'<span style="background-color: #442222; color: #ff8888; text-decoration: line-through;">{chunk}</span>'
+        elif tag == 'insert':
+            chunk = new_text[j1:j2].replace('\n', '<br>')
+            new_html += f'<span style="background-color: #224422; color: #88ff88;">{chunk}</span>'
+        elif tag == 'replace':
+            chunk_old = old_text[i1:i2].replace('\n', '<br>')
+            chunk_new = new_text[j1:j2].replace('\n', '<br>')
+            old_html += f'<span style="background-color: #442222; color: #ff8888; text-decoration: line-through;">{chunk_old}</span>'
+            new_html += f'<span style="background-color: #224422; color: #88ff88;">{chunk_new}</span>'
+            
+    return old_html, new_html
 
 from utils.memory_utils import cleanup_memory, log_memory, check_high_memory, TextSizeValidator
 from utils.rate_limiter import RateLimiter
@@ -119,7 +151,7 @@ class SceneReviewDialog(QDialog):
         self.approved = False
 
         self.setWindowTitle(f"Review Fix: {scene_name}")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(1200, 800)
         self.init_ui()
 
     def init_ui(self):
@@ -162,14 +194,17 @@ class SceneReviewDialog(QDialog):
 
         # Tabs for original vs fixed
         tabs = QTabWidget()
+        
+        orig_highlighted, fixed_highlighted = get_highlighted_diffs(self.original_text, self.fixed_text)
 
         # Original text
         original_widget = QTextEdit()
         original_widget.setReadOnly(True)
-        original_widget.setPlainText(self.original_text)
+        original_widget.setHtml(f"<div style='white-space: pre-wrap;'>{orig_highlighted}</div>")
         original_widget.setStyleSheet("""
             QTextEdit {
-                background: #fff3cd;
+                background: #1E1E1E;
+                color: #A0A0A0;
                 font-family: 'Georgia', serif;
                 font-size: 11pt;
                 line-height: 1.6;
@@ -181,10 +216,11 @@ class SceneReviewDialog(QDialog):
         # Fixed text
         fixed_widget = QTextEdit()
         fixed_widget.setReadOnly(True)
-        fixed_widget.setPlainText(self.fixed_text)
+        fixed_widget.setHtml(f"<div style='white-space: pre-wrap;'>{fixed_highlighted}</div>")
         fixed_widget.setStyleSheet("""
             QTextEdit {
-                background: #d4edda;
+                background: #1A1A1A;
+                color: #E0E0E0;
                 font-family: 'Georgia', serif;
                 font-size: 11pt;
                 line-height: 1.6;
@@ -198,10 +234,11 @@ class SceneReviewDialog(QDialog):
 
         original_side = QTextEdit()
         original_side.setReadOnly(True)
-        original_side.setPlainText(self.original_text)
+        original_side.setHtml(f"<div style='white-space: pre-wrap;'>{orig_highlighted}</div>")
         original_side.setStyleSheet("""
             QTextEdit {
-                background: #fff3cd;
+                background: #1E1E1E;
+                color: #A0A0A0;
                 font-family: 'Georgia', serif;
                 font-size: 10pt;
                 padding: 10px;
@@ -210,21 +247,31 @@ class SceneReviewDialog(QDialog):
 
         fixed_side = QTextEdit()
         fixed_side.setReadOnly(True)
-        fixed_side.setPlainText(self.fixed_text)
+        fixed_side.setHtml(f"<div style='white-space: pre-wrap;'>{fixed_highlighted}</div>")
         fixed_side.setStyleSheet("""
             QTextEdit {
-                background: #d4edda;
+                background: #1A1A1A;
+                color: #E0E0E0;
                 font-family: 'Georgia', serif;
                 font-size: 10pt;
                 padding: 10px;
             }
         """)
 
+        # Synchronize scrolling for side-by-side
+        original_side.verticalScrollBar().valueChanged.connect(
+            fixed_side.verticalScrollBar().setValue
+        )
+        fixed_side.verticalScrollBar().valueChanged.connect(
+            original_side.verticalScrollBar().setValue
+        )
+
         splitter.addWidget(original_side)
         splitter.addWidget(fixed_side)
-        splitter.setSizes([500, 500])
+        splitter.setSizes([600, 600])
 
         tabs.addTab(splitter, "📊 Side-by-Side")
+        tabs.setCurrentIndex(2) # Default to side-by-side
 
         layout.addWidget(tabs)
 
@@ -495,20 +542,12 @@ class AIFixChapterDialog(QDialog):
 
         # Header
         header = QLabel(f"🔧 AI Fix Chapter: {self.chapter_name}")
-        header.setStyleSheet("""
-            font-size: 14pt;
-            font-weight: bold;
-            padding: 12px;
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #dc3545, stop:1 #c82333);
-            color: white;
-            border-radius: 6px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         # Info
         self.info_label = QLabel("AI will fix timeline and consistency issues found in analysis")
-        self.info_label.setStyleSheet("color: #6c757d; padding: 10px; font-size: 10pt;")
+        self.info_label.setObjectName("infoLabel")
         layout.addWidget(self.info_label)
 
         # Issues list
@@ -516,17 +555,6 @@ class AIFixChapterDialog(QDialog):
         issues_layout = QVBoxLayout()
 
         self.issues_list = QListWidget()
-        self.issues_list.setStyleSheet("""
-            QListWidget {
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #e9ecef;
-            }
-        """)
         issues_layout.addWidget(self.issues_list)
 
         # Severity filter
@@ -535,19 +563,19 @@ class AIFixChapterDialog(QDialog):
 
         self.critical_check = QCheckBox("Critical")
         self.critical_check.setChecked(True)
-        self.critical_check.setStyleSheet("color: #dc3545; font-weight: bold;")
+        self.critical_check.setObjectName("criticalCheck")
         self.critical_check.stateChanged.connect(self.update_issues_list)
         filter_layout.addWidget(self.critical_check)
 
         self.major_check = QCheckBox("Major")
         self.major_check.setChecked(True)
-        self.major_check.setStyleSheet("color: #fd7e14; font-weight: bold;")
+        self.major_check.setObjectName("majorCheck")
         self.major_check.stateChanged.connect(self.update_issues_list)
         filter_layout.addWidget(self.major_check)
 
         self.minor_check = QCheckBox("Minor")
         self.minor_check.setChecked(False)
-        self.minor_check.setStyleSheet("color: #ffc107;")
+        self.minor_check.setObjectName("minorCheck")
         self.minor_check.stateChanged.connect(self.update_issues_list)
         filter_layout.addWidget(self.minor_check)
 
@@ -562,22 +590,10 @@ class AIFixChapterDialog(QDialog):
         progress_layout = QVBoxLayout()
 
         self.status_label = QLabel("Ready to start")
-        self.status_label.setStyleSheet("font-size: 10pt; color: #495057;")
+        self.status_label.setObjectName("statusLabel")
         progress_layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #dee2e6;
-                border-radius: 5px;
-                text-align: center;
-                height: 25px;
-            }
-            QProgressBar::chunk {
-                background: #dc3545;
-                border-radius: 3px;
-            }
-        """)
         self.progress_bar.setVisible(False)
         progress_layout.addWidget(self.progress_bar)
 
@@ -588,18 +604,7 @@ class AIFixChapterDialog(QDialog):
         button_layout = QHBoxLayout()
 
         self.fix_btn = QPushButton("🔧 Start Review Process")
-        self.fix_btn.setStyleSheet("""
-            QPushButton {
-                background: #dc3545;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11pt;
-            }
-            QPushButton:hover { background: #c82333; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
+        self.fix_btn.setObjectName("primaryButton")
         self.fix_btn.clicked.connect(self.start_fixing)
         button_layout.addWidget(self.fix_btn)
 
@@ -610,6 +615,116 @@ class AIFixChapterDialog(QDialog):
         button_layout.addWidget(close_btn)
 
         layout.addLayout(button_layout)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 14pt;
+                font-weight: bold;
+                padding: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                color: white;
+                border-radius: 6px;
+                margin-bottom: 5px;
+            }
+            
+            QLabel#infoLabel {
+                color: #A0A0A0;
+                padding: 10px;
+                font-size: 10pt;
+            }
+            
+            QLabel#statusLabel {
+                font-size: 10pt;
+                color: #E0E0E0;
+            }
+            
+            QListWidget {
+                background: #1E1E1E;
+                border: 1px solid #2D2D2D;
+                border-radius: 4px;
+                color: #E0E0E0;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #2D2D2D;
+            }
+            QListWidget::item:selected {
+                background: #2D2D2D;
+                color: #7C4DFF;
+            }
+            
+            QCheckBox {
+                color: #E0E0E0;
+            }
+            QCheckBox#criticalCheck { color: #FF5252; font-weight: bold; }
+            QCheckBox#majorCheck { color: #FFD740; font-weight: bold; }
+            QCheckBox#minorCheck { color: #A0A0A0; }
+            
+            QProgressBar {
+                border: 1px solid #2D2D2D;
+                border-radius: 5px;
+                text-align: center;
+                height: 25px;
+                background: #1A1A1A;
+            }
+            QProgressBar::chunk {
+                background: #7C4DFF;
+                border-radius: 3px;
+            }
+            
+            QGroupBox {
+                border: 1px solid #2D2D2D;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding-top: 15px;
+                font-weight: bold;
+                color: #7C4DFF;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QPushButton#primaryButton {
+                background-color: #7C4DFF;
+                border: none;
+                color: white;
+                font-size: 11pt;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #9E7CFF;
+            }
+            
+            QPushButton:disabled {
+                background-color: #1A1A1A;
+                color: #555555;
+                border-color: #2D2D2D;
+            }
+        """)
 
     def load_issues(self):
         """Load timeline and consistency issues for chapter"""

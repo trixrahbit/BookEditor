@@ -22,12 +22,21 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setMinimumSize(650, 550)
 
+        # Main layout with no margins to allow header to span full width
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
         # Header
         header = QLabel("⚙️ Application Settings")
         header.setObjectName("settingsHeader")
         layout.addWidget(header)
+
+        # Content container
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(15, 15, 15, 15)
+        content_layout.setSpacing(15)
 
         # Tab widget
         tabs = QTabWidget()
@@ -45,7 +54,7 @@ class SettingsDialog(QDialog):
         ai_tab = self.create_ai_tab()
         tabs.addTab(ai_tab, "AI Analysis")
 
-        layout.addWidget(tabs)
+        content_layout.addWidget(tabs)
 
         # Buttons
         button_box = QDialogButtonBox(
@@ -53,7 +62,9 @@ class SettingsDialog(QDialog):
         )
         button_box.accepted.connect(self.save_and_accept)
         button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        content_layout.addWidget(button_box)
+
+        layout.addWidget(content_widget)
 
     def create_azure_tab(self):
         """Create Azure OpenAI configuration tab"""
@@ -73,6 +84,7 @@ class SettingsDialog(QDialog):
         # Form
         form = QFormLayout()
         form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self.azure_api_key_edit = QLineEdit()
         self.azure_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -109,6 +121,7 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout()
         form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self.autosave_spin = QSpinBox()
         self.autosave_spin.setRange(0, 60)
@@ -136,6 +149,7 @@ class SettingsDialog(QDialog):
 
         form = QFormLayout()
         form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
         self.temperature_spin = QSpinBox()
         self.temperature_spin.setRange(0, 100)
@@ -254,67 +268,150 @@ class SettingsDialog(QDialog):
         """Apply modern styling"""
         self.setStyleSheet("""
             QDialog {
-                background: white;
+                background-color: #121212;
+                color: #E0E0E0;
             }
             
+            QLabel {
+                color: #E0E0E0;
+            }
+
             QLabel#settingsHeader {
                 font-size: 18pt;
                 font-weight: bold;
-                color: #212529;
+                color: white;
                 padding: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                border-radius: 6px;
+                margin-bottom: 10px;
             }
             
             QLabel#infoLabel {
-                color: #6c757d;
+                color: #A0A0A0;
                 padding: 10px;
-                background: #f8f9fa;
+                background: #1E1E1E;
+                border: 1px solid #2D2D2D;
                 border-radius: 6px;
-                margin: 10px 0;
+                margin: 5px 0;
             }
             
             QTabWidget::pane {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                background: white;
+                border: 1px solid #2D2D2D;
+                background: #1A1A1A;
+                top: -1px;
             }
             
             QTabBar::tab {
                 padding: 10px 20px;
                 margin-right: 2px;
-                background: #e9ecef;
-                border: 1px solid #dee2e6;
+                background: #252526;
+                color: #A0A0A0;
+                border: 1px solid #2D2D2D;
                 border-bottom: none;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
             }
             
             QTabBar::tab:selected {
-                background: white;
-                border-bottom: 1px solid white;
+                background: #1A1A1A;
+                color: #7C4DFF;
+                border-bottom: 1px solid #1A1A1A;
             }
             
-            QLineEdit, QSpinBox {
-                border: 1px solid #ced4da;
-                border-radius: 4px;
+            QTabBar::tab:hover {
+                background: #3D3D3D;
+            }
+
+            QWidget {
+                background-color: transparent;
+            }
+
+            QTabWidget QWidget {
+                background-color: #1A1A1A;
+            }
+            
+            QLineEdit, QSpinBox, QComboBox {
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
                 padding: 8px;
-                background: white;
+                background: #1E1E1E;
+                color: #E0E0E0;
             }
             
-            QLineEdit:focus, QSpinBox:focus {
-                border-color: #667eea;
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+                border-color: #7C4DFF;
             }
             
+            QCheckBox {
+                color: #E0E0E0;
+                spacing: 8px;
+            }
+            
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 3px;
+            }
+            
+            QCheckBox::indicator:checked {
+                background-color: #7C4DFF;
+                border-color: #7C4DFF;
+            }
+
+            QGroupBox {
+                border: 1px solid #2D2D2D;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding-top: 15px;
+                font-weight: bold;
+                color: #7C4DFF;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+
             QPushButton#testButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #17a2b8, stop:1 #138496);
+                background-color: #252526;
+                border: 1px solid #7C4DFF;
+                color: #7C4DFF;
+            }
+
+            QPushButton#testButton:hover {
+                background-color: #7C4DFF;
+                color: white;
+            }
+            
+            QDialogButtonBox QPushButton {
+                min-width: 80px;
+            }
+            
+            QDialogButtonBox QPushButton[text="OK"] {
+                background-color: #7C4DFF;
                 color: white;
                 border: none;
-                border-radius: 6px;
-                padding: 10px 20px;
-                font-weight: bold;
             }
             
-            QPushButton#testButton:hover {
-                background: #117a8b;
+            QDialogButtonBox QPushButton[text="OK"]:hover {
+                background-color: #9E7CFF;
             }
         """)

@@ -253,19 +253,11 @@ class PersonaManagerDialog(QDialog):
 
         # Header
         header = QLabel("✍️ Writing Personas")
-        header.setStyleSheet("""
-            font-size: 16pt;
-            font-weight: bold;
-            padding: 15px;
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #667eea, stop:1 #764ba2);
-            color: white;
-            border-radius: 6px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         info = QLabel("Define writing styles to maintain consistent voice across your manuscript")
-        info.setStyleSheet("color: #6c757d; padding: 10px; font-size: 10pt;")
+        info.setObjectName("infoLabel")
         layout.addWidget(info)
 
         # Main splitter
@@ -276,7 +268,7 @@ class PersonaManagerDialog(QDialog):
         left_layout = QVBoxLayout(left_widget)
 
         list_header = QLabel("Personas:")
-        list_header.setStyleSheet("font-weight: bold; font-size: 11pt;")
+        list_header.setObjectName("sectionHeader")
         left_layout.addWidget(list_header)
 
         self.persona_list = QListWidget()
@@ -290,7 +282,7 @@ class PersonaManagerDialog(QDialog):
         new_btn.clicked.connect(self.create_new_persona)
         list_btn_layout.addWidget(new_btn)
 
-        template_btn = QPushButton("📋 From Template")
+        template_btn = QPushButton("📋 Templates")
         template_btn.clicked.connect(self.create_from_template)
         list_btn_layout.addWidget(template_btn)
 
@@ -315,17 +307,7 @@ class PersonaManagerDialog(QDialog):
         editor_btn_layout.addStretch()
 
         self.save_btn = QPushButton("💾 Save Changes")
-        self.save_btn.setStyleSheet("""
-            QPushButton {
-                background: #28a745;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #218838; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
+        self.save_btn.setObjectName("primaryButton")
         self.save_btn.clicked.connect(self.save_current_persona)
         self.save_btn.setEnabled(False)
         editor_btn_layout.addWidget(self.save_btn)
@@ -351,6 +333,109 @@ class PersonaManagerDialog(QDialog):
         dialog_btn_layout.addWidget(close_btn)
 
         layout.addLayout(dialog_btn_layout)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 16pt;
+                font-weight: bold;
+                padding: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                color: white;
+                border-radius: 6px;
+                margin-bottom: 10px;
+            }
+            
+            QLabel#infoLabel {
+                color: #A0A0A0;
+                padding: 10px;
+                font-size: 10pt;
+            }
+            
+            QLabel#sectionHeader {
+                font-weight: bold;
+                font-size: 11pt;
+                color: #E0E0E0;
+            }
+            
+            QListWidget {
+                background: #1E1E1E;
+                border: 1px solid #2D2D2D;
+                border-radius: 4px;
+                color: #E0E0E0;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #2D2D2D;
+            }
+            QListWidget::item:selected {
+                background: #2D2D2D;
+                color: #7C4DFF;
+            }
+            
+            QSplitter::handle {
+                background: #2D2D2D;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QPushButton#primaryButton {
+                background-color: #7C4DFF;
+                border: none;
+                color: white;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #9E7CFF;
+            }
+            
+            QPushButton:disabled {
+                background-color: #1A1A1A;
+                color: #555555;
+                border-color: #2D2D2D;
+            }
+            
+            QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
+                background-color: #1E1E1E;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px;
+                color: #E0E0E0;
+            }
+            
+            QGroupBox {
+                border: 1px solid #2D2D2D;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding-top: 15px;
+                font-weight: bold;
+                color: #7C4DFF;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
 
     def load_personas(self):
         """Load personas into list"""

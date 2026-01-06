@@ -17,7 +17,6 @@ from live_text_check import LiveTextChecker, CheckResult, SpellIssue, GrammarIss
 
 class EditorWidget(QWidget):
     content_changed = pyqtSignal()
-    analyze_requested = pyqtSignal(str)  # Emits item_id for analysis
     rewrite_requested = pyqtSignal(str)  # Emits selected text for rewriting
     rewrite_selection_action_requested = pyqtSignal()
     rewrite_scene_action_requested = pyqtSignal()
@@ -30,6 +29,8 @@ class EditorWidget(QWidget):
         self.auto_save_timer.timeout.connect(self.auto_save)
         self.auto_save_timer.setInterval(5000)  # 5 seconds
         self.persona_manager = None
+        self.current_text_color = QColor(Qt.GlobalColor.black)
+        self.current_highlight_color = QColor(Qt.GlobalColor.transparent)
         self.init_ui()
         self.apply_modern_style()
         self.live_checks_enabled = True
@@ -57,7 +58,7 @@ class EditorWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Title bar with AI button
+        # Title bar
         title_bar = QWidget()
         title_bar.setObjectName("titleBar")
         title_layout = QHBoxLayout(title_bar)
@@ -68,13 +69,6 @@ class EditorWidget(QWidget):
         title_layout.addWidget(self.title_label)
 
         title_layout.addStretch()
-
-        # AI Analyze button
-        self.ai_button = QPushButton("🤖 AI Analyze")
-        self.ai_button.setObjectName("aiButton")
-        self.ai_button.clicked.connect(self.on_ai_analyze)
-        self.ai_button.setEnabled(False)
-        title_layout.addWidget(self.ai_button)
 
         self.word_count_label = QLabel("0 words")
         self.word_count_label.setObjectName("wordCount")
@@ -114,11 +108,12 @@ class EditorWidget(QWidget):
         self.toolbar = toolbar
         self.toolbar_compact = False
 
+        # Font Selection
         self.font_combo = QFontComboBox()
         self.font_combo.setCurrentFont(QFont("Georgia"))
         self.font_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.font_combo.setMinimumWidth(80)  # was effectively large
-        self.font_combo.setMaximumWidth(220)  # cap it so it can't bully the toolbar
+        self.font_combo.setMinimumWidth(80)
+        self.font_combo.setMaximumWidth(180)  # slightly reduced
         self.font_combo.currentFontChanged.connect(self.change_font_family)
         toolbar.addWidget(self.font_combo)
 
@@ -129,6 +124,7 @@ class EditorWidget(QWidget):
         self.font_size_combo.setEditable(True)
         self.font_size_combo.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
         self.font_size_combo.setMinimumWidth(55)
+        self.font_size_combo.setMaximumWidth(70)
         sizes = ['8', '9', '10', '11', '12', '14', '16', '18', '20', '24', '28', '32', '36', '48', '72']
         self.font_size_combo.addItems(sizes)
         self.font_size_combo.setCurrentText('12')
@@ -137,154 +133,138 @@ class EditorWidget(QWidget):
 
         self.toolbar_size_separator = toolbar.addSeparator()
 
-        # Bold
-        bold_action = QAction("B", self)
-        bold_action.setCheckable(True)
-        bold_action.setShortcut("Ctrl+B")
-        bold_action.setToolTip("Bold (Ctrl+B)")
-        bold_action.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-        bold_action.triggered.connect(self.toggle_bold)
-        toolbar.addAction(bold_action)
-        self.bold_action = bold_action
+        # Group 1: Basic Formatting
+        self.bold_action = QAction("𝐁", self)
+        self.bold_action.setCheckable(True)
+        self.bold_action.setShortcut("Ctrl+B")
+        self.bold_action.setToolTip("Bold (Ctrl+B)")
+        self.bold_action.triggered.connect(self.toggle_bold)
+        toolbar.addAction(self.bold_action)
 
-        # Italic
-        italic_action = QAction("I", self)
-        italic_action.setCheckable(True)
-        italic_action.setShortcut("Ctrl+I")
-        italic_action.setToolTip("Italic (Ctrl+I)")
-        italic_font = QFont("Arial", 10)
-        italic_font.setItalic(True)
-        italic_action.setFont(italic_font)
-        italic_action.triggered.connect(self.toggle_italic)
-        toolbar.addAction(italic_action)
-        self.italic_action = italic_action
+        self.italic_action = QAction("𝑰", self)
+        self.italic_action.setCheckable(True)
+        self.italic_action.setShortcut("Ctrl+I")
+        self.italic_action.setToolTip("Italic (Ctrl+I)")
+        self.italic_action.triggered.connect(self.toggle_italic)
+        toolbar.addAction(self.italic_action)
 
-        # Underline
-        underline_action = QAction("U", self)
-        underline_action.setCheckable(True)
-        underline_action.setShortcut("Ctrl+U")
-        underline_action.setToolTip("Underline (Ctrl+U)")
-        underline_font = QFont("Arial", 10)
-        underline_font.setUnderline(True)
-        underline_action.setFont(underline_font)
-        underline_action.triggered.connect(self.toggle_underline)
-        toolbar.addAction(underline_action)
-        self.underline_action = underline_action
+        self.underline_action = QAction("U̲", self)
+        self.underline_action.setCheckable(True)
+        self.underline_action.setShortcut("Ctrl+U")
+        self.underline_action.setToolTip("Underline (Ctrl+U)")
+        self.underline_action.triggered.connect(self.toggle_underline)
+        toolbar.addAction(self.underline_action)
 
-        # Strikethrough
-        strike_action = QAction("S", self)
-        strike_action.setCheckable(True)
-        strike_action.setToolTip("Strikethrough")
-        strike_font = QFont("Arial", 10)
-        strike_font.setStrikeOut(True)
-        strike_action.setFont(strike_font)
-        strike_action.triggered.connect(self.toggle_strikethrough)
-        toolbar.addAction(strike_action)
-        self.strike_action = strike_action
+        self.strike_action = QAction("S̶", self)
+        self.strike_action.setCheckable(True)
+        self.strike_action.setToolTip("Strikethrough")
+        self.strike_action.triggered.connect(self.toggle_strikethrough)
+        toolbar.addAction(self.strike_action)
 
-        toolbar.addSeparator()
+        self.toolbar_format_separator = toolbar.addSeparator()
 
-        # Text Color
-        text_color_action = QAction("A", self)
-        text_color_action.setToolTip("Text Color")
-        text_color_action.triggered.connect(self.change_text_color)
-        toolbar.addAction(text_color_action)
+        # Group 2: Colors
+        self.text_color_action = QAction("A", self)
+        self.text_color_action.setToolTip("Text Color")
+        self.text_color_action.triggered.connect(self.change_text_color)
+        toolbar.addAction(self.text_color_action)
 
-        # Highlight Color
-        highlight_action = QAction("H", self)
-        highlight_action.setToolTip("Highlight Color")
-        highlight_action.triggered.connect(self.change_highlight_color)
-        toolbar.addAction(highlight_action)
+        self.highlight_action = QAction("H", self)
+        self.highlight_action.setToolTip("Highlight Color")
+        self.highlight_action.triggered.connect(self.change_highlight_color)
+        toolbar.addAction(self.highlight_action)
 
-        toolbar.addSeparator()
+        self.toolbar_color_separator = toolbar.addSeparator()
 
-        # Alignment
-        align_left_action = QAction("⬅", self)
-        align_left_action.setCheckable(True)
-        align_left_action.setToolTip("Align Left")
-        align_left_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignLeft))
-        toolbar.addAction(align_left_action)
-        self.align_left_action = align_left_action
+        # Group 3: Alignment
+        self.align_left_action = QAction("⬅", self)
+        self.align_left_action.setCheckable(True)
+        self.align_left_action.setToolTip("Align Left")
+        self.align_left_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignLeft))
+        toolbar.addAction(self.align_left_action)
 
-        align_center_action = QAction("⬌", self)
-        align_center_action.setCheckable(True)
-        align_center_action.setToolTip("Align Center")
-        align_center_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignCenter))
-        toolbar.addAction(align_center_action)
-        self.align_center_action = align_center_action
+        self.align_center_action = QAction("⬌", self)
+        self.align_center_action.setCheckable(True)
+        self.align_center_action.setToolTip("Align Center")
+        self.align_center_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignCenter))
+        toolbar.addAction(self.align_center_action)
 
-        align_right_action = QAction("➡", self)
-        align_right_action.setCheckable(True)
-        align_right_action.setToolTip("Align Right")
-        align_right_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignRight))
-        toolbar.addAction(align_right_action)
-        self.align_right_action = align_right_action
+        self.align_right_action = QAction("➡", self)
+        self.align_right_action.setCheckable(True)
+        self.align_right_action.setToolTip("Align Right")
+        self.align_right_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignRight))
+        toolbar.addAction(self.align_right_action)
 
-        align_justify_action = QAction("⬍", self)
-        align_justify_action.setCheckable(True)
-        align_justify_action.setToolTip("Justify")
-        align_justify_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignJustify))
-        toolbar.addAction(align_justify_action)
-        self.align_justify_action = align_justify_action
+        self.align_justify_action = QAction("⬍", self)
+        self.align_justify_action.setCheckable(True)
+        self.align_justify_action.setToolTip("Justify")
+        self.align_justify_action.triggered.connect(lambda: self.set_alignment(Qt.AlignmentFlag.AlignJustify))
+        toolbar.addAction(self.align_justify_action)
 
-        toolbar.addSeparator()
+        self.toolbar_align_separator = toolbar.addSeparator()
 
-        # Lists
-        bullet_action = QAction("●", self)
-        bullet_action.setToolTip("Bullet List")
-        bullet_action.triggered.connect(self.toggle_bullet_list)
-        toolbar.addAction(bullet_action)
+        # Group 4: Lists & Indentation
+        self.bullet_action = QAction("●", self)
+        self.bullet_action.setToolTip("Bullet List")
+        self.bullet_action.triggered.connect(self.toggle_bullet_list)
+        toolbar.addAction(self.bullet_action)
 
-        number_action = QAction("1.", self)
-        number_action.setToolTip("Numbered List")
-        number_action.triggered.connect(self.toggle_numbered_list)
-        toolbar.addAction(number_action)
+        self.number_action = QAction("1.", self)
+        self.number_action.setToolTip("Numbered List")
+        self.number_action.triggered.connect(self.toggle_numbered_list)
+        toolbar.addAction(self.number_action)
 
-        toolbar.addSeparator()
+        self.indent_less_action = QAction("◁", self)
+        self.indent_less_action.setToolTip("Decrease Indent")
+        self.indent_less_action.triggered.connect(self.decrease_indent)
+        toolbar.addAction(self.indent_less_action)
 
-        # Indentation
-        indent_less_action = QAction("◁", self)
-        indent_less_action.setToolTip("Decrease Indent")
-        indent_less_action.triggered.connect(self.decrease_indent)
-        toolbar.addAction(indent_less_action)
+        self.indent_more_action = QAction("▷", self)
+        self.indent_more_action.setToolTip("Increase Indent")
+        self.indent_more_action.triggered.connect(self.increase_indent)
+        toolbar.addAction(self.indent_more_action)
 
-        indent_more_action = QAction("▷", self)
-        indent_more_action.setToolTip("Increase Indent")
-        indent_more_action.triggered.connect(self.increase_indent)
-        toolbar.addAction(indent_more_action)
+        self.toolbar_list_separator = toolbar.addSeparator()
 
-        toolbar.addSeparator()
-
-        # Clear Formatting
-        clear_format_action = QAction("✕", self)
-        clear_format_action.setToolTip("Clear Formatting")
-        clear_format_action.triggered.connect(self.clear_formatting)
-        toolbar.addAction(clear_format_action)
+        # Group 5: Clear
+        self.clear_format_action = QAction("✕", self)
+        self.clear_format_action.setToolTip("Clear Formatting")
+        self.clear_format_action.triggered.connect(self.clear_formatting)
+        toolbar.addAction(self.clear_format_action)
 
         parent_layout.addWidget(toolbar)
 
         # Connect cursor position changed to update toolbar
         self.text_edit.cursorPositionChanged.connect(self.update_format_actions)
 
+        # Initial color indicators
+        self.update_color_indicators()
+
     def set_toolbar_compact(self, compact: bool):
+        """Toggle compact mode for the toolbar.
+
+        Note: Both modes now use similar spacing to maintain layout stability.
+        """
         if self.toolbar_compact == compact:
             return
         self.toolbar_compact = compact
 
-        self.font_combo.setVisible(not compact)
-        self.font_size_combo.setVisible(not compact)
-        self.toolbar_font_separator.setVisible(not compact)
-        self.toolbar_size_separator.setVisible(not compact)
-
         icon_size = QSize(16, 16) if compact else QSize(18, 18)
         self.toolbar.setIconSize(icon_size)
 
-        # Optional: tighten spacing
-        self.toolbar.setStyleSheet(
-            "QToolBar#editorToolbar { padding: 4px; spacing: 1px; }"
-            if compact else
-            "QToolBar#editorToolbar { padding: 8px; spacing: 2px; }"
-        )
+        # Ensure consistent dark theme and minimal size changes
+        # Padding and spacing are kept nearly identical to prevent jitter
+        self.toolbar.setStyleSheet(f"""
+            QToolBar#editorToolbar {{ 
+                padding: 2px; 
+                spacing: {2 if compact else 4}px; 
+                background: #1A1A1A;
+                border-bottom: 1px solid #2D2D2D;
+            }}
+            QToolButton {{
+                padding: {2 if compact else 4}px;
+            }}
+        """)
 
     def html_to_plaintext(self, html: str) -> str:
         """Convert stored HTML to plain text while preserving paragraph breaks."""
@@ -323,7 +303,6 @@ class EditorWidget(QWidget):
             self.text_edit.setHtml(item.content or "")
 
             self.set_enabled(True)
-            self.ai_button.setEnabled(True)
             self.auto_save_timer.start()
 
         elif item.item_type == ItemType.CHAPTER:
@@ -350,7 +329,6 @@ class EditorWidget(QWidget):
             self.text_edit.setPlainText(combined)
 
             self.set_enabled(False)  # read-only
-            self.ai_button.setEnabled(True)
             self.auto_save_timer.stop()
 
         else:
@@ -359,7 +337,6 @@ class EditorWidget(QWidget):
             self.text_edit.setPlainText("")
 
             self.set_enabled(False)
-            self.ai_button.setEnabled(False)
             self.auto_save_timer.stop()
 
         self.text_edit.blockSignals(False)
@@ -376,10 +353,12 @@ class EditorWidget(QWidget):
 
     def on_text_changed(self):
         """Handle text changes"""
+        # print("DEBUG: on_text_changed")
         self.update_word_count()
         self.content_changed.emit()
         # schedule live checks (threaded + debounced)
         if self.live_checker:
+            # print("DEBUG: Scheduling check")
             self.live_checker.schedule(self.text_edit.toPlainText())
 
     def update_word_count(self):
@@ -413,11 +392,6 @@ class EditorWidget(QWidget):
         if self.current_item and self.db_manager:
             self.current_item.content = self.text_edit.toHtml()
             self.db_manager.save_item(self.project_id, self.current_item)
-
-    def on_ai_analyze(self):
-        """Trigger AI analysis for current scene"""
-        if self.current_item:
-            self.analyze_requested.emit(self.current_item.id)
 
     def toggle_bold(self):
         """Toggle bold formatting"""
@@ -459,19 +433,56 @@ class EditorWidget(QWidget):
 
     def change_text_color(self):
         """Change text color"""
-        color = QColorDialog.getColor()
+        color = QColorDialog.getColor(self.current_text_color, self)
         if color.isValid():
+            self.current_text_color = color
             fmt = QTextCharFormat()
             fmt.setForeground(color)
             self.merge_format_on_word_or_selection(fmt)
+            self.update_color_indicators()
 
     def change_highlight_color(self):
         """Change highlight/background color"""
-        color = QColorDialog.getColor()
+        color = QColorDialog.getColor(self.current_highlight_color, self)
         if color.isValid():
+            self.current_highlight_color = color
             fmt = QTextCharFormat()
             fmt.setBackground(color)
             self.merge_format_on_word_or_selection(fmt)
+            self.update_color_indicators()
+
+    def update_color_indicators(self):
+        """Update the visual color indicators on the toolbar buttons"""
+        # We use a colored bottom border to indicate the color
+        text_color_hex = self.current_text_color.name()
+
+        # For highlight, if it's transparent, we use white/none
+        if self.current_highlight_color.alpha() == 0:
+            highlight_color_hex = "transparent"
+            highlight_border = "#dee2e6" # default border
+        else:
+            highlight_color_hex = self.current_highlight_color.name()
+            highlight_border = highlight_color_hex
+
+        # Find the tool buttons in the toolbar
+        for action in [self.text_color_action, self.highlight_action]:
+            button = self.toolbar.widgetForAction(action)
+            if button:
+                if action == self.text_color_action:
+                    button.setStyleSheet(f"""
+                        QToolButton {{
+                            border-bottom: 3px solid {text_color_hex};
+                            padding-bottom: 1px;
+                        }}
+                    """)
+                else:
+                    button.setStyleSheet(f"""
+                        QToolButton {{
+                            border-bottom: 3px solid {highlight_border};
+                            background-color: {highlight_color_hex};
+                            padding-bottom: 1px;
+                        }}
+                    """)
 
     def set_alignment(self, alignment):
         """Set text alignment"""
@@ -589,6 +600,11 @@ class EditorWidget(QWidget):
         # Update alignment
         self.update_alignment_actions(self.text_edit.alignment())
 
+        # Update colors
+        self.current_text_color = fmt.foreground().color()
+        self.current_highlight_color = fmt.background().color()
+        self.update_color_indicators()
+
     def set_enabled(self, enabled: bool):
         """Enable/disable editing + formatting controls.
 
@@ -604,6 +620,8 @@ class EditorWidget(QWidget):
         self.strike_action.setEnabled(enabled)
         self.font_combo.setEnabled(enabled)
         self.font_size_combo.setEnabled(enabled)
+        self.text_color_action.setEnabled(enabled)
+        self.highlight_action.setEnabled(enabled)
         self.align_left_action.setEnabled(enabled)
         self.align_center_action.setEnabled(enabled)
         self.align_right_action.setEnabled(enabled)
@@ -706,102 +724,73 @@ class EditorWidget(QWidget):
             self.rewrite_requested.emit(selected_text)
 
     def apply_modern_style(self):
-        """Apply modern styling to the editor"""
+        """Apply modern futuristic styling to the editor"""
         self.setStyleSheet("""
             QWidget#titleBar {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #f8f9fa, stop:1 #e9ecef);
-                border-bottom: 1px solid #dee2e6;
+                background: #1A1A1A;
+                border-bottom: 1px solid #2D2D2D;
             }
             
             QLabel#sceneTitle {
                 font-size: 16pt;
                 font-weight: bold;
-                color: #212529;
+                color: #7C4DFF;
+                padding: 2px 10px;
+                background: transparent;
+                border: none;
             }
             
             QLabel#wordCount {
-                color: #6c757d;
+                color: #A0A0A0;
                 font-size: 10pt;
                 padding: 5px 10px;
             }
             
-            QPushButton#aiButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                color: white;
-                border: none;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-                font-size: 11pt;
-            }
-            
-            QPushButton#aiButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #764ba2, stop:1 #667eea);
-            }
-            
-            QPushButton#aiButton:pressed {
-                background: #5a67d8;
-            }
-            
-            QPushButton#aiButton:disabled {
-                background: #e9ecef;
-                color: #adb5bd;
-            }
-            
             QToolBar#editorToolbar {
-                background: #f8f9fa;
-                border-bottom: 1px solid #dee2e6;
-                spacing: 2px;
-                padding: 8px;
+                background: #1A1A1A;
+                border-bottom: 1px solid #2D2D2D;
+                padding: 2px;
+                spacing: 4px;
+                color: #E0E0E0;
             }
             
             QToolBar#editorToolbar QToolButton {
-                background: white;
-                border: 1px solid #dee2e6;
+                background: #252526;
+                border: 1px solid #3D3D3D;
                 border-radius: 4px;
-                padding: 6px;
-                margin: 2px;
-                min-width: 30px;
-                min-height: 30px;
+                padding: 4px;
+                margin: 1px;
             }
             
             QToolBar#editorToolbar QToolButton:hover {
-                background: #e9ecef;
-                border-color: #adb5bd;
-            }
-            
-            QToolBar#editorToolbar QToolButton:pressed {
-                background: #dee2e6;
+                background: #3D3D3D;
+                border-color: #7C4DFF;
             }
             
             QToolBar#editorToolbar QToolButton:checked {
-                background: #667eea;
+                background: #7C4DFF;
                 color: white;
-                border-color: #667eea;
             }
             
             QFontComboBox, QComboBox {
-                background: white;
-                border: 1px solid #dee2e6;
+                background: #252526;
+                border: 1px solid #3D3D3D;
                 border-radius: 4px;
-                padding: 5px;
-                margin: 2px;
-                min-width: 120px;
-            }
-            
-            QFontComboBox:hover, QComboBox:hover {
-                border-color: #adb5bd;
+                padding: 2px 5px;
+                margin: 1px;
+                color: #E0E0E0;
             }
             
             QTextEdit#mainEditor {
-                background: white;
+                background-color: #1E1E1E;
+                color: #E0E0E0;
                 border: none;
-                padding: 20px;
-                selection-background-color: #667eea;
+                padding: 40px;
+                selection-background-color: #7C4DFF;
                 selection-color: white;
+                font-family: 'Georgia', 'serif';
+                font-size: 12pt;
+                line-height: 1.6;
             }
         """)
 
@@ -859,6 +848,8 @@ class EditorWidget(QWidget):
         text = self.text_edit.toPlainText()
         doc_len = len(text)
 
+        # print(f"DEBUG: Applying underlines to text length {doc_len}. Spell={len(self._spell_issues)}, Grammar={len(self._grammar_issues)}")
+
         selections: list[QTextEdit.ExtraSelection] = []
 
         def add_underline(start: int, length: int, kind: str):
@@ -877,11 +868,11 @@ class EditorWidget(QWidget):
 
             # Spellcheck underline is rendered most reliably by Qt
             if kind == "spell":
-                fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
-                fmt.setUnderlineColor(QColor("red"))
+                fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
+                fmt.setUnderlineColor(QColor("#FF0000")) # Brighter red
             else:
                 fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
-                fmt.setUnderlineColor(QColor("blue"))
+                fmt.setUnderlineColor(QColor("#0000FF")) # Brighter blue
 
             sel = QTextEdit.ExtraSelection()
             sel.cursor = cursor
@@ -932,43 +923,6 @@ class EditorWidget(QWidget):
         if self.live_checks_enabled:
             self.live_checker.schedule(self.text_edit.toPlainText())
 
-    def apply_live_issues(self, result):
-        """Apply spelling & grammar underlines from LiveTextChecker"""
-        selections = []
-
-        doc = self.text_edit.document()
-
-        # 🔴 Spelling (red squiggle)
-        for issue in result.spell:
-            cursor = QTextCursor(doc)
-            cursor.setPosition(issue.start)
-            cursor.setPosition(issue.start + issue.length, QTextCursor.MoveMode.KeepAnchor)
-
-            fmt = QTextCharFormat()
-            fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SpellCheckUnderline)
-            fmt.setUnderlineColor(QColor("red"))
-
-            sel = QTextEdit.ExtraSelection()
-            sel.cursor = cursor
-            sel.format = fmt
-            selections.append(sel)
-
-        # 🔵 Grammar (blue squiggle)
-        for issue in result.grammar:
-            cursor = QTextCursor(doc)
-            cursor.setPosition(issue.start)
-            cursor.setPosition(issue.start + issue.length, QTextCursor.MoveMode.KeepAnchor)
-
-            fmt = QTextCharFormat()
-            fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.WaveUnderline)
-            fmt.setUnderlineColor(QColor("blue"))
-
-            sel = QTextEdit.ExtraSelection()
-            sel.cursor = cursor
-            sel.format = fmt
-            selections.append(sel)
-
-        self.text_edit.setExtraSelections(selections)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -977,6 +931,7 @@ class EditorWidget(QWidget):
         w = self.width()
 
         # Compact when editor is narrow (usually because right panel is open)
-        should_compact = w < 780
+        # 850 is a safer threshold for the new set of icons
+        should_compact = w < 850
 
         self.set_toolbar_compact(should_compact)

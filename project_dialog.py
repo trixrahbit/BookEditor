@@ -94,32 +94,54 @@ class ProjectDialog(QDialog):
         """Apply modern styling"""
         self.setStyleSheet("""
             QDialog {
-                background: white;
+                background-color: #121212;
             }
 
             QLabel#dialogHeader {
                 font-size: 18pt;
                 font-weight: bold;
-                color: #212529;
-                padding: 10px 0;
+                color: white;
+                padding: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                border-radius: 6px;
+                margin-bottom: 10px;
+            }
+            
+            QLabel {
+                color: #E0E0E0;
+                font-size: 10pt;
             }
 
             QLineEdit, QTextEdit, QSpinBox {
-                border: 1px solid #ced4da;
-                border-radius: 4px;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
                 padding: 8px;
-                background: white;
+                background: #1E1E1E;
+                color: #E0E0E0;
                 font-size: 11pt;
             }
 
             QLineEdit:focus, QTextEdit:focus, QSpinBox:focus {
-                border-color: #667eea;
+                border-color: #7C4DFF;
                 outline: none;
             }
 
             QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
                 padding: 8px 16px;
-                border-radius: 4px;
+                color: #E0E0E0;
                 font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QDialogButtonBox QPushButton {
+                min-width: 80px;
             }
         """)

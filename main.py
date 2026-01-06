@@ -153,15 +153,20 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Novelist AI")
         self.setMinimumSize(1200, 800)
 
+        # Apply global stylesheet
+        self.apply_futuristic_theme()
+
         # Create central widget with splitters FIRST
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
         main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(5)
 
         # Main splitter (horizontal)
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        main_splitter.setHandleWidth(1)
 
         # Left panel - Project tree
         self.project_tree = ProjectTreeWidget()
@@ -195,7 +200,6 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.metadata_panel)
         right_layout.addWidget(self.chapter_insights)
-        self.right_panel = right_panel
         self.right_panel = right_panel
         self.metadata_panel.collapse_toggled.connect(
             self._safe_slot(self.on_properties_panel_toggled)
@@ -234,6 +238,194 @@ class MainWindow(QMainWindow):
         self._right_panel_sizes = None
         self._right_panel_collapsed_width = 64
 
+    def apply_futuristic_theme(self):
+        """Apply a dark, futuristic, and sleek theme across the application."""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #121212;
+            }
+            
+            QWidget {
+                background-color: #121212;
+                color: #E0E0E0;
+                font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+            }
+            
+            QSplitter::handle {
+                background-color: #2D2D2D;
+            }
+            
+            QSplitter::handle:horizontal {
+                width: 1px;
+            }
+            
+            QMenuBar {
+                background-color: #1A1A1A;
+                border-bottom: 1px solid #2D2D2D;
+                padding: 4px;
+            }
+            
+            QMenuBar::item {
+                padding: 4px 10px;
+                background: transparent;
+            }
+            
+            QMenuBar::item:selected {
+                background: #2D2D2D;
+                border-radius: 4px;
+            }
+            
+            QMenu {
+                background-color: #1E1E1E;
+                border: 1px solid #3D3D3D;
+                padding: 5px;
+            }
+            
+            QMenu::item {
+                padding: 6px 25px 6px 20px;
+                border-radius: 3px;
+            }
+            
+            QMenu::item:selected {
+                background-color: #7C4DFF;
+                color: white;
+            }
+            
+            QToolBar {
+                background-color: #1A1A1A;
+                border: none;
+                spacing: 10px;
+                padding: 5px;
+                color: #E0E0E0;
+            }
+            
+            QToolButton {
+                background: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 6px;
+            }
+            
+            QToolButton:hover {
+                background: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QStatusBar {
+                background-color: #1A1A1A;
+                color: #A0A0A0;
+                border-top: 1px solid #2D2D2D;
+            }
+            
+            QMessageBox {
+                background-color: #1E1E1E;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QPushButton:pressed {
+                background-color: #1A1A1A;
+            }
+            
+            QPushButton#primaryButton {
+                background-color: #7C4DFF;
+                border: none;
+                color: white;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #9E7CFF;
+            }
+            
+            QLineEdit, QTextEdit, QPlainTextEdit {
+                background-color: #1E1E1E;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px;
+                color: #E0E0E0;
+                selection-background-color: #7C4DFF;
+            }
+            
+            QLineEdit:focus, QTextEdit:focus {
+                border: 1px solid #7C4DFF;
+            }
+            
+            QScrollBar:vertical {
+                border: none;
+                background: #121212;
+                width: 10px;
+                margin: 0px;
+            }
+            
+            QScrollBar::handle:vertical {
+                background: #3D3D3D;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            
+            QScrollBar::handle:vertical:hover {
+                background: #4D4D4D;
+            }
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            
+            QScrollBar:horizontal {
+                border: none;
+                background: #121212;
+                height: 10px;
+                margin: 0px;
+            }
+            
+            QScrollBar::handle:horizontal {
+                background: #3D3D3D;
+                min-width: 20px;
+                border-radius: 5px;
+            }
+            
+            QTabWidget::pane {
+                border: 1px solid #2D2D2D;
+                top: -1px;
+                background-color: #1E1E1E;
+            }
+            
+            QTabBar::tab {
+                background-color: #1A1A1A;
+                border: 1px solid #2D2D2D;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            
+            QTabBar::tab:selected {
+                background-color: #1E1E1E;
+                border-bottom-color: #1E1E1E;
+                color: #7C4DFF;
+            }
+            
+            QHeaderView::section {
+                background-color: #1A1A1A;
+                color: #A0A0A0;
+                padding: 6px;
+                border: none;
+                border-bottom: 1px solid #2D2D2D;
+            }
+        """)
+
     def on_properties_panel_toggled(self, collapsed: bool):
         """Collapse or expand the properties panel within the splitter."""
         if collapsed:
@@ -254,6 +446,9 @@ class MainWindow(QMainWindow):
                 self.main_splitter.setSizes(self._right_panel_sizes)
             else:
                 self.main_splitter.setSizes([320, 600, 320])
+        
+        # Ensure toolbar updates after splitter change
+        self.update_editor_toolbar_layout(is_collapsed=collapsed)
 
 
     def create_menu_bar(self):
@@ -456,17 +651,7 @@ class MainWindow(QMainWindow):
         toolbar = QToolBar("Main Toolbar")
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
-
-        # Add common actions
-        new_scene_action = QAction("New Scene", self)
-        new_scene_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("scene")))
-        toolbar.addAction(new_scene_action)
-
-        toolbar.addSeparator()
-
-        save_action = QAction("Save", self)
-        save_action.triggered.connect(self._safe_slot(self.save_project))
-        toolbar.addAction(save_action)
+        # Toolbar actions (New Scene, Save) removed as requested
 
     def new_project(self):
         """Create a new project"""
@@ -509,11 +694,14 @@ class MainWindow(QMainWindow):
                 # Initialize persona manager
                 from writing_persona import PersonaManager
                 self.persona_manager = PersonaManager(self.db_manager, self.current_project.id)
-                self.editor_widget.set_project_context(self.db_manager, self.current_project.id, self.persona_manager)
+                self.editor.set_project_context(self.db_manager, self.current_project.id, self.persona_manager)
                 # Update UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
                 self.statusBar.showMessage(f"Created project: {self.current_project.name}")
+
+                # Save as last project
+                self.settings.setValue("lastProjectPath", file_path)
 
     def open_project(self):
         """Open an existing project"""
@@ -560,6 +748,9 @@ class MainWindow(QMainWindow):
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
                 self.statusBar.showMessage(f"Opened project: {self.current_project.name}")
+                
+                # Save as last project
+                self.settings.setValue("lastProjectPath", file_path)
             else:
                 QMessageBox.warning(self, "Error", "No project found in file")
         except Exception as e:
@@ -878,6 +1069,22 @@ class MainWindow(QMainWindow):
         if splitter_state:
             self.main_splitter.restoreState(splitter_state)
 
+    def check_last_project(self):
+        """Check if there's a last used project and ask to open it"""
+        last_path = self.settings.value("lastProjectPath")
+        if last_path and os.path.exists(last_path):
+            project_name = os.path.basename(last_path)
+            reply = QMessageBox.question(
+                self,
+                "Open Last Project",
+                f"Would you like to open your last project?\n\n{project_name}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.load_project(last_path)
+
     def closeEvent(self, event):
         """Handle window close event"""
         # Shutdown insight service
@@ -929,8 +1136,8 @@ class MainWindow(QMainWindow):
                 return
 
             # If a scene is currently open, save latest editor content before analyzing
-            if self.editor_widget.current_item and self.editor_widget.current_item.id == item_id:
-                self.editor_widget.auto_save()
+            if self.editor.current_item and self.editor.current_item.id == item_id:
+                self.editor.auto_save()
 
             from models.project import ItemType
 
@@ -994,10 +1201,20 @@ class MainWindow(QMainWindow):
             return
 
         def refresh():
-            # Refresh the metadata panel if this scene is currently selected
-            item = self.db_manager.load_item(scene_id)
-            if item:
-                self.metadata_panel.load_item(item, self.db_manager, self.current_project.id)
+            # Refresh the metadata panel if this scene is currently selected or being viewed
+            # We check current_item in metadata_panel to see if it matches
+            if hasattr(self.metadata_panel, 'current_item') and self.metadata_panel.current_item:
+                if self.metadata_panel.current_item.id == scene_id:
+                    item = self.db_manager.load_item(scene_id)
+                    if item:
+                        self.metadata_panel.load_item(item, self.db_manager, self.current_project.id)
+            
+            # Also refresh if it's the item currently in the editor
+            if hasattr(self.editor, 'current_item') and self.editor.current_item:
+                if self.editor.current_item.id == scene_id:
+                    item = self.db_manager.load_item(scene_id)
+                    if item:
+                        self.editor.load_item(item, self.db_manager, self.current_project.id)
 
         self.ai_integration.fill_scene_properties(scene_id, refresh)
 
@@ -1342,6 +1559,9 @@ def main():
     app.setApplicationName("Novelist AI")
     app.setOrganizationName("Rabbit Consulting")
     app.setOrganizationDomain("rabbit-consulting.com")
+    
+    # Store app instance to avoid potential issues with QSettings
+    # (though not strictly necessary in most cases, it's good practice)
 
     # Set application style
     app.setStyle('Fusion')
@@ -1349,6 +1569,10 @@ def main():
     # Create and show main window
     window = MainWindow()
     window.show()
+    
+    # Check for last project after showing window
+    from PyQt6.QtCore import QTimer
+    QTimer.singleShot(100, window.check_last_project)
 
     print("Window created and shown")
     print("Application running - use File menu to create/open projects")

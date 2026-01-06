@@ -17,6 +17,53 @@ from typing import Dict
 import html as _html
 
 
+class CollapsibleSection(QWidget):
+    """A widget that can collapse its contents"""
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        self.toggle_btn = QToolButton()
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setChecked(True)
+        self.toggle_btn.setText(title)
+        self.toggle_btn.setArrowType(Qt.ArrowType.DownArrow)
+        self.toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.toggle_btn.setStyleSheet("""
+            QToolButton {
+                border: none;
+                font-size: 12pt;
+                font-weight: bold;
+                color: #495057;
+                padding: 10px;
+                background: #e9ecef;
+                border-radius: 4px;
+                text-align: left;
+            }
+            QToolButton:hover {
+                background: #dee2e6;
+            }
+        """)
+        self.toggle_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.toggle_btn.toggled.connect(self._on_toggle)
+
+        self.content_area = QWidget()
+        self.content_layout = QVBoxLayout(self.content_area)
+        self.content_layout.setContentsMargins(5, 5, 5, 5)
+        self.content_layout.setSpacing(10)
+
+        self.layout.addWidget(self.toggle_btn)
+        self.layout.addWidget(self.content_area)
+
+    def _on_toggle(self, checked: bool):
+        self.content_area.setVisible(checked)
+        self.toggle_btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+
+    def add_widget(self, widget: QWidget):
+        self.content_layout.addWidget(widget)
+
 class AIFixWorker(QThread):
     """Worker thread for AI fix suggestions"""
     finished = pyqtSignal(str)  # Fixed text
@@ -233,6 +280,10 @@ class IssueCard(QFrame):
             """)
             self.fix_btn.clicked.connect(self._request_fix)
             header.addWidget(self.fix_btn)
+
+            # Strengths don't need a fix button
+            if severity == "Strength":
+                self.fix_btn.hide()
 
         location_label = QLabel(f"📍 {self.issue_data.get('location', 'Unknown')}")
         location_label.setStyleSheet("color: #6c757d; font-size: 10pt; margin-left: 10px;")
@@ -786,35 +837,11 @@ class StoryInsightsViewer(QDialog):
 
         # Header
         header = QLabel("📊 Story Insights Dashboard")
-        header.setStyleSheet("""
-            font-size: 20pt;
-            font-weight: bold;
-            color: #212529;
-            padding: 20px;
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #667eea, stop:1 #764ba2);
-            color: white;
-            border-radius: 8px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         # Tabs for different analysis types
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                background: white;
-            }
-            QTabBar::tab {
-                padding: 10px 20px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: #667eea;
-                color: white;
-            }
-        """)
 
         # Timeline tab
         self.timeline_tab = self.create_issues_tab()
@@ -837,19 +864,83 @@ class StoryInsightsViewer(QDialog):
         # Close button
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: #6c757d;
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 20pt;
+                font-weight: bold;
+                padding: 20px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
                 color: white;
+                border-radius: 8px;
+                margin-bottom: 10px;
+            }
+            
+            QTabWidget::pane {
+                border: 1px solid #2D2D2D;
+                background: #1A1A1A;
+                top: -1px;
+            }
+            
+            QTabBar::tab {
+                padding: 10px 20px;
+                margin-right: 2px;
+                background: #252526;
+                color: #A0A0A0;
+                border: 1px solid #2D2D2D;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            
+            QTabBar::tab:selected {
+                background: #1A1A1A;
+                color: #7C4DFF;
+                border-bottom: 1px solid #1A1A1A;
+            }
+            
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            
+            QScrollArea QWidget {
+                background: transparent;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
                 padding: 10px 30px;
-                border-radius: 4px;
+                color: #E0E0E0;
+                font-weight: 500;
                 font-size: 11pt;
             }
+            
             QPushButton:hover {
-                background: #5a6268;
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QTextEdit {
+                background: #1E1E1E;
+                color: #E0E0E0;
+                border: 1px solid #2D2D2D;
+                border-radius: 4px;
+                padding: 15px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 10pt;
             }
         """)
-        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
 
     def create_issues_tab(self) -> QWidget:
         """Create a tab for displaying issues"""
@@ -932,18 +1023,27 @@ class StoryInsightsViewer(QDialog):
             critical = [i for i in issues if i.get('severity') == 'Critical']
             major = [i for i in issues if i.get('severity') == 'Major']
             minor = [i for i in issues if i.get('severity') == 'Minor']
-            other = [i for i in issues if i.get('severity') not in ['Critical', 'Major', 'Minor']]
+            suggestions = [i for i in issues if i.get('severity') == 'Suggestion']
+            strengths = [i for i in issues if i.get('severity') == 'Strength']
+            other = [i for i in issues if i.get('severity') not in ['Critical', 'Major', 'Minor', 'Suggestion', 'Strength']]
 
-            for issue_list, title in [(critical, 'Critical Issues'), (major, 'Major Issues'),
-                                      (minor, 'Minor Issues'), (other, 'Observations')]:
+            groups = [
+                (critical, 'Critical Issues'),
+                (major, 'Major Issues'),
+                (minor, 'Minor Issues'),
+                (suggestions, 'Suggestions'),
+                (strengths, 'Strengths'),
+                (other, 'Observations')
+            ]
+
+            for issue_list, title in groups:
                 if issue_list:
-                    header = QLabel(f"── {title} ({len(issue_list)}) ──")
-                    header.setStyleSheet("font-size: 12pt; font-weight: bold; color: #495057; margin: 15px 0 10px 0;")
-                    layout.addWidget(header)
+                    section = CollapsibleSection(f"{title} ({len(issue_list)})")
+                    layout.addWidget(section)
 
                     for issue in issue_list:
                         card = IssueCard(issue, self.db_manager, self.project_id)
-                        layout.addWidget(card)
+                        section.add_widget(card)
 
         layout.addStretch()
 

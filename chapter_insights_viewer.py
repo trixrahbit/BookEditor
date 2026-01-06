@@ -4,11 +4,57 @@ Chapter Insights Viewer - Shows analysis results when a chapter is selected
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QTabWidget, QTextEdit, QGroupBox
+    QScrollArea, QFrame, QTabWidget, QTextEdit, QGroupBox, QToolButton
 )
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QSize
+from PyQt6.QtGui import QFont, QIcon
 from typing import Dict, Any, List, Optional
+
+
+class CollapsibleSectionInsight(QWidget):
+    """A widget that can collapse its contents"""
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        self.toggle_btn = QPushButton(title)
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setChecked(True)
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                border: none;
+                font-size: 10pt;
+                font-weight: bold;
+                color: #A0A0A0;
+                padding: 6px;
+                background: #1A1A1A;
+                text-align: left;
+                border-bottom: 1px solid #2D2D2D;
+            }
+            QPushButton:hover {
+                background: #252526;
+            }
+            QPushButton:checked {
+                color: #7C4DFF;
+            }
+        """)
+        self.toggle_btn.toggled.connect(self._on_toggle)
+
+        self.content_area = QWidget()
+        self.content_layout = QVBoxLayout(self.content_area)
+        self.content_layout.setContentsMargins(2, 2, 2, 2)
+        self.content_layout.setSpacing(2)
+
+        self.layout.addWidget(self.toggle_btn)
+        self.layout.addWidget(self.content_area)
+
+    def _on_toggle(self, checked: bool):
+        self.content_area.setVisible(checked)
+
+    def add_widget(self, widget: QWidget):
+        self.content_layout.addWidget(widget)
 
 
 class InsightIssueCard(QFrame):
@@ -25,13 +71,16 @@ class InsightIssueCard(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet("""
             QFrame {
-                background: white;
-                border-left: 3px solid #667eea;
+                background: #252526;
+                border-left: 3px solid #7C4DFF;
                 padding: 8px;
                 margin: 3px 0;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
             }
             QFrame:hover {
-                background: #f8f9fa;
+                background: #2D2D2D;
+                border-left-color: #00D2FF;
             }
         """)
 
@@ -43,31 +92,49 @@ class InsightIssueCard(QFrame):
         badge = QLabel(severity)
         badge.setStyleSheet(self._get_severity_style(severity))
         badge.setFixedWidth(70)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(badge)
 
         # Issue text
         issue_text = self.issue.get('issue', 'No description')
         label = QLabel(issue_text)
         label.setWordWrap(True)
-        label.setStyleSheet("font-size: 9pt; color: #212529;")
+        label.setStyleSheet("font-size: 9pt; color: #E0E0E0;")
         layout.addWidget(label, stretch=1)
 
         # Fix button
-        if self.issue.get('scene_id'):
-            fix_btn = QPushButton("🔧")
-            fix_btn.setFixedSize(30, 30)
-            fix_btn.setStyleSheet("""
-                QPushButton {
-                    background: #667eea;
+        if self.issue.get('scene_id') and severity != "Strength":
+            self.fix_btn = QToolButton()
+            self.fix_btn.setIcon(QIcon.fromTheme("system-run")) # Fallback
+            # Use a more specific icon if possible, but emojis or custom paths are often used in such projects
+            # Since I don't see icon files, I'll use a better styled button with text or a standard icon
+            self.fix_btn.setText("Fix")
+            self.fix_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            
+            # Try to set a spark icon if available, or stick to a better emoji if themed icons aren't available
+            # Many PyQt6 apps use emojis as icons if they don't have an asset pipeline
+            self.fix_btn.setText("✨ AI Fix")
+            
+            self.fix_btn.setFixedSize(70, 28)
+            self.fix_btn.setStyleSheet("""
+                QToolButton {
+                    background: #7C4DFF;
                     color: white;
                     border: none;
                     border-radius: 4px;
+                    font-weight: bold;
+                    font-size: 8pt;
                 }
-                QPushButton:hover { background: #5a67d8; }
+                QToolButton:hover { 
+                    background: #9E7CFF; 
+                }
+                QToolButton:pressed {
+                    background: #6200EA;
+                }
             """)
-            fix_btn.setToolTip("AI Fix")
-            fix_btn.clicked.connect(lambda: self.fix_requested.emit(self.issue))
-            layout.addWidget(fix_btn)
+            self.fix_btn.setToolTip("Use AI to fix this issue")
+            self.fix_btn.clicked.connect(lambda: self.fix_requested.emit(self.issue))
+            layout.addWidget(self.fix_btn)
 
     def _get_severity_style(self, severity: str) -> str:
         styles = {
@@ -93,50 +160,98 @@ class ChapterInsightsViewer(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Header with analyze button
-        header_layout = QHBoxLayout()
+        # Header - consistent with MetadataPanel
+        header = QFrame()
+        header.setObjectName("insightHeader")
+        header.setFixedHeight(50)
+        header.setStyleSheet("""
+            QFrame#insightHeader {
+                background: #1A1A1A;
+                border-bottom: 1px solid #2D2D2D;
+            }
+        """)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(15, 0, 15, 0)
 
         self.title_label = QLabel("Chapter Insights")
-        self.title_label.setStyleSheet("font-size: 14pt; font-weight: bold; color: #212529;")
+        self.title_label.setObjectName("titleLabel")
+        self.title_label.setStyleSheet("""
+            font-size: 14pt;
+            font-weight: bold;
+            color: #7C4DFF;
+            background: transparent;
+        """)
         header_layout.addWidget(self.title_label)
 
         header_layout.addStretch()
 
         self.analyze_btn = QPushButton("🤖 Run AI Analysis")
+        self.analyze_btn.setFixedWidth(140)
+        self.analyze_btn.setFixedHeight(30)
         self.analyze_btn.setStyleSheet("""
             QPushButton {
-                background: #667eea;
+                background-color: #7C4DFF;
                 color: white;
-                padding: 8px 16px;
+                border: none;
                 border-radius: 4px;
                 font-weight: bold;
+                font-size: 9pt;
             }
-            QPushButton:hover { background: #5a67d8; }
-            QPushButton:disabled { background: #adb5bd; }
+            QPushButton:hover {
+                background-color: #9E7CFF;
+            }
+            QPushButton:disabled {
+                background-color: #2D2D2D;
+                color: #4D4D4D;
+            }
         """)
         self.analyze_btn.clicked.connect(self._on_analyze_clicked)
         self.analyze_btn.setEnabled(False)
         header_layout.addWidget(self.analyze_btn)
 
-        layout.addLayout(header_layout)
+        layout.addWidget(header)
+
+        # Main content area
+        content_widget = QWidget()
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(10, 10, 10, 10)
+        content_layout.setSpacing(10)
 
         # Status label
         self.status_label = QLabel("No analysis yet")
-        self.status_label.setStyleSheet("color: #6c757d; font-style: italic; margin: 5px 0;")
-        layout.addWidget(self.status_label)
+        self.status_label.setStyleSheet("color: #A0A0A0; font-style: italic; margin-bottom: 5px;")
+        content_layout.addWidget(self.status_label)
 
         # Tabs for different insight types
         self.tabs = QTabWidget()
         self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                border: 1px solid #2D2D2D;
+                background: #1E1E1E;
+                top: -1px;
+            }
             QTabBar::tab {
-                padding: 6px 12px;
+                padding: 8px 12px;
+                background: #1A1A1A;
+                color: #A0A0A0;
+                border: 1px solid #2D2D2D;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                margin-right: 2px;
                 font-size: 9pt;
             }
             QTabBar::tab:selected {
-                background: #667eea;
-                color: white;
+                background: #1E1E1E;
+                color: #7C4DFF;
+                font-weight: bold;
+                border-bottom: 1px solid #1E1E1E;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #252526;
             }
         """)
 
@@ -155,17 +270,24 @@ class ChapterInsightsViewer(QWidget):
         # Reader tab
         self.reader_widget = QTextEdit()
         self.reader_widget.setReadOnly(True)
-        self.reader_widget.setStyleSheet("background: white; border: 1px solid #dee2e6; font-size: 9pt;")
+        self.reader_widget.setStyleSheet("""
+            background: #1E1E1E; 
+            border: none; 
+            color: #E0E0E0; 
+            font-size: 10pt;
+            padding: 10px;
+        """)
         self.tabs.addTab(self.reader_widget, "👁️ Reader")
 
-        layout.addWidget(self.tabs)
+        content_layout.addWidget(self.tabs)
 
         # Empty state
         self.empty_state = QLabel("Select a chapter to view insights")
         self.empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty_state.setStyleSheet("color: #adb5bd; font-size: 12pt; padding: 40px;")
-        layout.addWidget(self.empty_state)
+        self.empty_state.setStyleSheet("color: #4D4D4D; font-size: 12pt; padding: 40px;")
+        content_layout.addWidget(self.empty_state)
 
+        layout.addWidget(content_widget)
         self.tabs.setVisible(False)
 
     def _create_issues_widget(self) -> QWidget:
@@ -176,9 +298,19 @@ class ChapterInsightsViewer(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: #f8f9fa; }")
+        scroll.setStyleSheet("""
+            QScrollArea { 
+                border: none; 
+                background: transparent; 
+            }
+            QWidget {
+                background: transparent;
+            }
+        """)
 
         scroll_content = QWidget()
+        scroll_content.setObjectName("scrollContent")
+        scroll_content.setStyleSheet("QWidget#scrollContent { background: transparent; }")
         scroll_layout = QVBoxLayout(scroll_content)
         scroll_layout.setSpacing(3)
 
@@ -317,24 +449,24 @@ class ChapterInsightsViewer(QWidget):
             return
 
         # Group by severity
-        critical = [i for i in issues if i.get('severity') == 'Critical']
-        major = [i for i in issues if i.get('severity') == 'Major']
-        minor = [i for i in issues if i.get('severity') == 'Minor']
-        strengths = [i for i in issues if i.get('severity') == 'Strength']
+        groups = [
+            ('Critical Issues', [i for i in issues if i.get('severity') == 'Critical']),
+            ('Major Issues', [i for i in issues if i.get('severity') == 'Major']),
+            ('Minor Issues', [i for i in issues if i.get('severity') == 'Minor']),
+            ('Suggestions', [i for i in issues if i.get('severity') == 'Suggestion']),
+            ('Strengths', [i for i in issues if i.get('severity') == 'Strength']),
+            ('Observations', [i for i in issues if i.get('severity') not in ['Critical', 'Major', 'Minor', 'Suggestion', 'Strength']])
+        ]
 
-        for issue_list, title in [(critical, f'Critical ({len(critical)})'),
-                                   (major, f'Major ({len(major)})'),
-                                   (minor, f'Minor ({len(minor)})'),
-                                   (strengths, f'Strengths ({len(strengths)})')]:
+        for title, issue_list in groups:
             if issue_list:
-                header = QLabel(title)
-                header.setStyleSheet("font-size: 10pt; font-weight: bold; color: #495057; margin: 8px 0 4px 0;")
-                layout.addWidget(header)
+                section = CollapsibleSectionInsight(f"{title} ({len(issue_list)})")
+                layout.addWidget(section)
 
-                for issue in issue_list[:10]:  # Limit to 10 per category
+                for issue in issue_list:
                     card = InsightIssueCard(issue)
                     card.fix_requested.connect(lambda i: self.fix_requested.emit(i, self.chapter_id))
-                    layout.addWidget(card)
+                    section.add_widget(card)
 
         layout.addStretch()
 
@@ -354,6 +486,10 @@ class ChapterInsightsViewer(QWidget):
 
     def _display_reader_snapshot(self, data: Dict):
         """Display reader simulation"""
+        # Unwrap nested payload if it exists (from _store_generic)
+        if 'payload' in data and isinstance(data['payload'], dict):
+            data = data['payload']
+
         text = "READER SIMULATION\n\n"
 
         for reader_type in ['careful_reader', 'skimmer', 'distracted_reader']:
@@ -371,10 +507,15 @@ class ChapterInsightsViewer(QWidget):
     def _on_analyze_clicked(self):
         """Handle analyze button click"""
         if self.chapter_id:
+            self.analyze_btn.setEnabled(False)
+            self.analyze_btn.setText("⏳ Analyzing...")
             self.analyze_requested.emit(self.chapter_id)
 
     def refresh(self):
         """Refresh the insights display"""
+        if self.chapter_id:
+            self.analyze_btn.setText("🤖 Run AI Analysis")
+            self.analyze_btn.setEnabled(True)
         self._load_insights()
 
     def clear(self):
@@ -383,6 +524,7 @@ class ChapterInsightsViewer(QWidget):
         self.insight_service = None
         self.title_label.setText("Chapter Insights")
         self.status_label.setText("No analysis yet")
+        self.status_label.setStyleSheet("color: #A0A0A0; font-style: italic; margin-bottom: 5px;")
         self.analyze_btn.setEnabled(False)
         self.empty_state.setVisible(True)
         self.tabs.setVisible(False)

@@ -166,20 +166,12 @@ class BatchAnalysisDialog(QDialog):
 
         # Header
         header = QLabel("📊 Batch Chapter Analysis")
-        header.setStyleSheet("""
-            font-size: 16pt;
-            font-weight: bold;
-            padding: 15px;
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #667eea, stop:1 #764ba2);
-            color: white;
-            border-radius: 6px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         # Info label
         self.info_label = QLabel("Select analysis types and click 'Start Analysis'")
-        self.info_label.setStyleSheet("color: #6c757d; padding: 10px; font-size: 10pt;")
+        self.info_label.setObjectName("infoLabel")
         layout.addWidget(self.info_label)
 
         # Analysis type selection
@@ -210,23 +202,10 @@ class BatchAnalysisDialog(QDialog):
         progress_layout = QVBoxLayout()
 
         self.progress_label = QLabel("Ready to start")
-        self.progress_label.setStyleSheet("font-size: 10pt; color: #495057;")
+        self.progress_label.setObjectName("statusLabel")
         progress_layout.addWidget(self.progress_label)
 
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #dee2e6;
-                border-radius: 5px;
-                text-align: center;
-                height: 25px;
-            }
-            QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea, stop:1 #764ba2);
-                border-radius: 3px;
-            }
-        """)
         progress_layout.addWidget(self.progress_bar)
 
         progress_group.setLayout(progress_layout)
@@ -238,15 +217,6 @@ class BatchAnalysisDialog(QDialog):
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setStyleSheet("""
-            QTextEdit {
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                font-family: 'Courier New', monospace;
-                font-size: 9pt;
-            }
-        """)
         log_layout.addWidget(self.log_text)
 
         log_group.setLayout(log_layout)
@@ -256,52 +226,124 @@ class BatchAnalysisDialog(QDialog):
         button_layout = QHBoxLayout()
 
         self.start_btn = QPushButton("▶ Start Analysis")
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background: #28a745;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11pt;
-            }
-            QPushButton:hover { background: #218838; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
+        self.start_btn.setObjectName("primaryButton")
         self.start_btn.clicked.connect(self.start_analysis)
         button_layout.addWidget(self.start_btn)
 
         self.stop_btn = QPushButton("⏹ Stop")
-        self.stop_btn.setStyleSheet("""
-            QPushButton {
-                background: #dc3545;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #c82333; }
-        """)
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self.stop_analysis)
         button_layout.addWidget(self.stop_btn)
 
-        button_layout.addStretch()
-
-        close_btn = QPushButton("Close")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: #6c757d;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-            }
-            QPushButton:hover { background: #5a6268; }
-        """)
-        close_btn.clicked.connect(self.accept)
-        button_layout.addWidget(close_btn)
+        self.close_btn = QPushButton("Close")
+        self.close_btn.clicked.connect(self.accept)
+        button_layout.addWidget(self.close_btn)
 
         layout.addLayout(button_layout)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 16pt;
+                font-weight: bold;
+                padding: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                color: white;
+                border-radius: 6px;
+                margin-bottom: 10px;
+            }
+            
+            QLabel#infoLabel {
+                color: #A0A0A0;
+                padding: 10px;
+                font-size: 10pt;
+            }
+            
+            QLabel#statusLabel {
+                font-size: 10pt;
+                color: #E0E0E0;
+            }
+            
+            QCheckBox {
+                color: #E0E0E0;
+                font-size: 10pt;
+                padding: 4px;
+            }
+            
+            QProgressBar {
+                border: 1px solid #2D2D2D;
+                border-radius: 5px;
+                text-align: center;
+                height: 25px;
+                background: #1A1A1A;
+            }
+            QProgressBar::chunk {
+                background: #7C4DFF;
+                border-radius: 3px;
+            }
+            
+            QTextEdit {
+                background: #1A1A1A;
+                color: #A0A0A0;
+                border: 1px solid #2D2D2D;
+                border-radius: 4px;
+                font-family: 'Consolas', 'Courier New', monospace;
+                font-size: 9pt;
+                padding: 8px;
+            }
+            
+            QGroupBox {
+                border: 1px solid #2D2D2D;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding-top: 15px;
+                font-weight: bold;
+                color: #7C4DFF;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QPushButton#primaryButton {
+                background-color: #7C4DFF;
+                border: none;
+                color: white;
+                font-size: 11pt;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #9E7CFF;
+            }
+            
+            QPushButton:disabled {
+                background-color: #1A1A1A;
+                color: #555555;
+                border-color: #2D2D2D;
+            }
+        """)
 
     def load_chapters(self):
         """Load all chapters from project"""

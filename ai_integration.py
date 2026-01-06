@@ -319,6 +319,10 @@ class AIFeatures:
 
                 self.db_manager.save_item(self.project_id, scene)
 
+                # Call callback BEFORE message box so UI updates immediately
+                if callback:
+                    callback()
+
                 QMessageBox.information(
                     self.parent,
                     "Success",
@@ -326,9 +330,13 @@ class AIFeatures:
                     "Summary, Goal, Conflict, and Outcome have been filled in.\n"
                     "Check the Properties panel to review."
                 )
-
-                if callback:
-                    callback()
+            else:
+                QMessageBox.warning(
+                    self.parent,
+                    "AI Warning",
+                    "The AI generated a response, but it couldn't be parsed into scene properties.\n"
+                    "Try again or check your scene content."
+                )
 
         def on_error(error):
             progress.close()

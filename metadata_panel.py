@@ -236,60 +236,57 @@ class MetadataPanel(QWidget):
         self.metadata_changed.emit()
 
     def apply_modern_style(self):
-        """Apply modern styling"""
+        """Apply modern futuristic styling"""
         self.setStyleSheet("""
             QWidget#metadataTitle {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #f8f9fa, stop:1 #e9ecef);
-                border-bottom: 1px solid #dee2e6;
+                background: #1A1A1A;
+                border-bottom: 1px solid #2D2D2D;
             }
 
             QLabel#titleLabel {
                 font-size: 14pt;
                 font-weight: bold;
-                color: #212529;
+                color: #7C4DFF;
+                background: transparent;
             }
 
             QToolButton#metadataToggle {
-                border: 1px solid #ced4da;
+                border: 1px solid #3D3D3D;
                 border-radius: 4px;
                 padding: 2px 6px;
-                background: white;
+                background: #252526;
+                color: #E0E0E0;
                 font-weight: bold;
             }
 
             QToolButton#metadataToggle:hover {
-                background: #f1f3f5;
-            }
-
-
-            QToolButton#metadataToggle:hover {
-                background: #f1f3f5;
+                background: #3D3D3D;
+                border-color: #7C4DFF;
             }
 
             QScrollArea#metadataScroll {
-                background: white;
+                background: #1E1E1E;
                 border: none;
             }
 
             QLineEdit#metadataLineEdit,
             QTextEdit#metadataTextEdit,
             QComboBox#metadataCombo {
-                border: 1px solid #ced4da;
+                border: 1px solid #3D3D3D;
                 border-radius: 4px;
                 padding: 6px;
-                background: white;
+                background: #252526;
+                color: #E0E0E0;
             }
 
             QLineEdit#metadataLineEdit:focus,
             QTextEdit#metadataTextEdit:focus {
-                border-color: #667eea;
+                border-color: #7C4DFF;
             }
 
             QPushButton#saveButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #28a745, stop:1 #218838);
-                color: white;
+                background-color: #00E676;
+                color: #121212;
                 border: none;
                 border-radius: 6px;
                 padding: 10px;
@@ -298,11 +295,11 @@ class MetadataPanel(QWidget):
             }
 
             QPushButton#saveButton:hover {
-                background: #1e7e34;
+                background-color: #69F0AE;
             }
 
             QPushButton#saveButton:disabled {
-                background: #e9ecef;
-                color: #adb5bd;
+                background-color: #2D2D2D;
+                color: #4D4D4D;
             }
         """)

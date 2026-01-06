@@ -13,6 +13,50 @@ from PyQt6.QtGui import QFont
 from typing import Dict, Any, List, Optional
 
 
+class CollapsibleSectionAdvanced(QWidget):
+    """A widget that can collapse its contents"""
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+
+        self.toggle_btn = QPushButton(title)
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setChecked(True)
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                border: none;
+                font-size: 11pt;
+                font-weight: bold;
+                color: #A0A0A0;
+                padding: 8px;
+                background: #252526;
+                text-align: left;
+            }
+            QPushButton:hover {
+                background: #2d2d2d;
+            }
+            QPushButton:checked {
+                color: #7C4DFF;
+            }
+        """)
+        self.toggle_btn.toggled.connect(self._on_toggle)
+
+        self.content_area = QWidget()
+        self.content_layout = QVBoxLayout(self.content_area)
+        self.content_layout.setContentsMargins(5, 5, 5, 5)
+        self.content_layout.setSpacing(8)
+
+        self.layout.addWidget(self.toggle_btn)
+        self.layout.addWidget(self.content_area)
+
+    def _on_toggle(self, checked: bool):
+        self.content_area.setVisible(checked)
+
+    def add_widget(self, widget: QWidget):
+        self.content_layout.addWidget(widget)
+
 class AnalysisWorker(QThread):
     """Background worker for running chapter analysis"""
     progress = pyqtSignal(str, int)  # message, percentage
@@ -111,7 +155,7 @@ class IssueCardAdvanced(QFrame):
         header.addStretch()
 
         # AI Fix button if we have scene_id
-        if self.issue.get('scene_id'):
+        if self.issue.get('scene_id') and severity != "Strength":
             fix_btn = QPushButton("🔧 AI Fix")
             fix_btn.setStyleSheet("""
                 QPushButton {
@@ -206,49 +250,18 @@ class AdvancedAnalysisDialog(QDialog):
         chapter_name = chapter.name if chapter else "Unknown Chapter"
 
         header = QLabel(f"🤖 AI Analysis: {chapter_name}")
-        header.setStyleSheet("""
-            font-size: 16pt;
-            font-weight: bold;
-            padding: 15px;
-            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                stop:0 #667eea, stop:1 #764ba2);
-            color: white;
-            border-radius: 6px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         # Progress bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                text-align: center;
-                height: 24px;
-            }
-            QProgressBar::chunk {
-                background: #667eea;
-                border-radius: 3px;
-            }
-        """)
         self.progress_label = QLabel("Ready")
-        self.progress_label.setStyleSheet("color: #6c757d; font-size: 9pt; margin: 4px;")
+        self.progress_label.setObjectName("infoLabel")
         layout.addWidget(self.progress_label)
         layout.addWidget(self.progress_bar)
 
         # Tabs for different analysis types
         self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabBar::tab {
-                padding: 10px 20px;
-                margin-right: 2px;
-                font-size: 10pt;
-            }
-            QTabBar::tab:selected {
-                background: #667eea;
-                color: white;
-            }
-        """)
 
         # Create tabs
         self.timeline_tab = self.create_issues_tab()
@@ -269,35 +282,110 @@ class AdvancedAnalysisDialog(QDialog):
         button_layout = QHBoxLayout()
 
         reanalyze_btn = QPushButton("🔄 Re-Analyze")
-        reanalyze_btn.setStyleSheet("""
-            QPushButton {
-                background: #667eea;
-                color: white;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #5a67d8; }
-        """)
         reanalyze_btn.clicked.connect(self.run_analysis)
         button_layout.addWidget(reanalyze_btn)
 
         button_layout.addStretch()
 
         close_btn = QPushButton("Close")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: #6c757d;
-                color: white;
-                padding: 8px 20px;
-                border-radius: 4px;
-            }
-            QPushButton:hover { background: #5a6268; }
-        """)
         close_btn.clicked.connect(self.accept)
         button_layout.addWidget(close_btn)
 
         layout.addLayout(button_layout)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 16pt;
+                font-weight: bold;
+                padding: 15px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                color: white;
+                border-radius: 6px;
+                margin-bottom: 10px;
+            }
+            
+            QLabel#infoLabel {
+                color: #A0A0A0;
+                font-size: 9pt;
+                margin: 4px;
+            }
+            
+            QProgressBar {
+                border: 1px solid #2D2D2D;
+                border-radius: 4px;
+                text-align: center;
+                height: 24px;
+                background: #1A1A1A;
+            }
+            QProgressBar::chunk {
+                background: #7C4DFF;
+                border-radius: 3px;
+            }
+            
+            QTabWidget::pane {
+                border: 1px solid #2D2D2D;
+                background: #1A1A1A;
+                top: -1px;
+            }
+            
+            QTabBar::tab {
+                padding: 10px 20px;
+                margin-right: 2px;
+                background: #252526;
+                color: #A0A0A0;
+                border: 1px solid #2D2D2D;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            
+            QTabBar::tab:selected {
+                background: #1A1A1A;
+                color: #7C4DFF;
+                border-bottom: 1px solid #1A1A1A;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px 16px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            
+            QGroupBox {
+                border: 1px solid #2D2D2D;
+                border-radius: 6px;
+                margin-top: 20px;
+                padding-top: 15px;
+                font-weight: bold;
+                color: #7C4DFF;
+            }
+            
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+            }
+        """)
 
     def create_issues_tab(self) -> QWidget:
         """Create tab for displaying issues"""
@@ -408,27 +496,33 @@ class AdvancedAnalysisDialog(QDialog):
             layout.addWidget(no_issues)
         else:
             # Group by severity
-            critical = [i for i in issues if i.get('severity') == 'Critical']
-            major = [i for i in issues if i.get('severity') == 'Major']
-            minor = [i for i in issues if i.get('severity') == 'Minor']
-            strengths = [i for i in issues if i.get('severity') == 'Strength']
+            groups = [
+                ('Critical Issues', [i for i in issues if i.get('severity') == 'Critical']),
+                ('Major Issues', [i for i in issues if i.get('severity') == 'Major']),
+                ('Minor Issues', [i for i in issues if i.get('severity') == 'Minor']),
+                ('Suggestions', [i for i in issues if i.get('severity') == 'Suggestion']),
+                ('Strengths', [i for i in issues if i.get('severity') == 'Strength']),
+                ('Observations', [i for i in issues if i.get('severity') not in ['Critical', 'Major', 'Minor', 'Suggestion', 'Strength']])
+            ]
 
-            for issue_list, title in [(critical, 'Critical'), (major, 'Major'),
-                                      (minor, 'Minor'), (strengths, 'Strengths')]:
+            for title, issue_list in groups:
                 if issue_list:
-                    header = QLabel(f"── {title} ({len(issue_list)}) ──")
-                    header.setStyleSheet("font-size: 11pt; font-weight: bold; color: #495057; margin: 10px 0 6px 0;")
-                    layout.addWidget(header)
+                    section = CollapsibleSectionAdvanced(f"{title} ({len(issue_list)})")
+                    layout.addWidget(section)
 
                     for issue in issue_list:
                         card = IssueCardAdvanced(issue, self.db_manager, self.project_id)
                         card.fix_requested.connect(self.on_fix_requested)
-                        layout.addWidget(card)
+                        section.add_widget(card)
 
         layout.addStretch()
 
     def display_reader_snapshot(self, data: Dict[str, Any]):
         """Display reader simulation results"""
+        # Unwrap nested payload if it exists (from _store_generic)
+        if 'payload' in data and isinstance(data['payload'], dict):
+            data = data['payload']
+
         text = "READER SIMULATION\n"
         text += "=" * 60 + "\n\n"
 

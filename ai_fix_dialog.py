@@ -2,12 +2,44 @@
 AI Fix Dialog - Uses ai_fix_engine.py for proposing fixes
 """
 
+import difflib
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QTextEdit, QTabWidget, QMessageBox, QProgressDialog
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QTextEdit, QMessageBox, QProgressDialog, QSplitter
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from typing import Dict, Any
+from PyQt6.QtGui import QTextCursor
+from typing import Dict, Any, List, Optional
+
+
+def get_highlighted_diffs(old_text: str, new_text: str):
+    """
+    Returns (highlighted_old_html, highlighted_new_html)
+    """
+    # Character-based diffing for finer highlights
+    s = difflib.SequenceMatcher(None, old_text, new_text)
+    
+    old_html = ""
+    new_html = ""
+    
+    for tag, i1, i2, j1, j2 in s.get_opcodes():
+        if tag == 'equal':
+            chunk = old_text[i1:i2].replace('\n', '<br>')
+            old_html += chunk
+            new_html += chunk
+        elif tag == 'delete':
+            chunk = old_text[i1:i2].replace('\n', '<br>')
+            old_html += f'<span style="background-color: #442222; color: #ff8888; text-decoration: line-through;">{chunk}</span>'
+        elif tag == 'insert':
+            chunk = new_text[j1:j2].replace('\n', '<br>')
+            new_html += f'<span style="background-color: #224422; color: #88ff88;">{chunk}</span>'
+        elif tag == 'replace':
+            chunk_old = old_text[i1:i2].replace('\n', '<br>')
+            chunk_new = new_text[j1:j2].replace('\n', '<br>')
+            old_html += f'<span style="background-color: #442222; color: #ff8888; text-decoration: line-through;">{chunk_old}</span>'
+            new_html += f'<span style="background-color: #224422; color: #88ff88;">{chunk_new}</span>'
+            
+    return old_html, new_html
 
 
 class FixWorker(QThread):
@@ -50,7 +82,7 @@ class AIFixDialog(QDialog):
         self.fix_result = None
 
         self.setWindowTitle("AI Fix Proposal")
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(1200, 800)
         self.init_ui()
         self.generate_fix()
 
@@ -62,14 +94,7 @@ class AIFixDialog(QDialog):
         scene_name = scene.name if scene else "Unknown Scene"
 
         header = QLabel(f"AI Fix: {self.issue.get('issue', 'Unknown Issue')}")
-        header.setStyleSheet("""
-            font-size: 14pt;
-            font-weight: bold;
-            padding: 12px;
-            background: #667eea;
-            color: white;
-            border-radius: 6px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         # Issue info
@@ -80,57 +105,62 @@ class AIFixDialog(QDialog):
         """
         info = QLabel(info_text)
         info.setWordWrap(True)
-        info.setStyleSheet("""
-            background: #f8f9fa;
-            padding: 10px;
-            border-radius: 4px;
-            margin: 8px 0;
-        """)
+        info.setObjectName("infoLabel")
         layout.addWidget(info)
 
-        # Tabs for original vs fixed
-        self.tabs = QTabWidget()
-        self.tabs.setStyleSheet("""
-            QTabBar::tab {
-                padding: 8px 16px;
-            }
-            QTabBar::tab:selected {
-                background: #667eea;
-                color: white;
-            }
-        """)
+        # Side-by-side comparison
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setObjectName("comparisonSplitter")
 
-        # Original
+        # Left: Original
+        original_container = QWidget()
+        original_layout = QVBoxLayout(original_container)
+        original_layout.setContentsMargins(0, 0, 0, 0)
+        orig_header = QLabel("📝 ORIGINAL")
+        orig_header.setStyleSheet("color: #fd7e14; font-weight: bold; padding: 5px;")
+        original_layout.addWidget(orig_header)
+        
         self.original_text = QTextEdit()
         self.original_text.setReadOnly(True)
-        self.original_text.setStyleSheet("""
-            QTextEdit {
-                background: #fff3cd;
-                font-family: 'Courier New', monospace;
-                font-size: 10pt;
-                padding: 10px;
-            }
-        """)
-        self.tabs.addTab(self.original_text, "📝 Original")
+        self.original_text.setObjectName("originalText")
+        original_layout.addWidget(self.original_text)
 
-        # Fixed
+        # Right: Fixed
+        fixed_container = QWidget()
+        fixed_layout = QVBoxLayout(fixed_container)
+        fixed_layout.setContentsMargins(0, 0, 0, 0)
+        fix_header = QLabel("✨ AI FIXED")
+        fix_header.setStyleSheet("color: #28a745; font-weight: bold; padding: 5px;")
+        fixed_layout.addWidget(fix_header)
+
         self.fixed_text = QTextEdit()
         self.fixed_text.setReadOnly(True)
-        self.fixed_text.setStyleSheet("""
-            QTextEdit {
-                background: #d4edda;
-                font-family: 'Courier New', monospace;
-                font-size: 10pt;
-                padding: 10px;
-            }
-        """)
-        self.tabs.addTab(self.fixed_text, "✨ AI Fixed")
+        self.fixed_text.setObjectName("fixedText")
+        fixed_layout.addWidget(self.fixed_text)
 
-        layout.addWidget(self.tabs)
+        self.splitter.addWidget(original_container)
+        self.splitter.addWidget(fixed_container)
+        self.splitter.setSizes([450, 450])
+
+        layout.addWidget(self.splitter)
+
+        # Synchronize scrolling
+        self.original_text.verticalScrollBar().valueChanged.connect(
+            self.fixed_text.verticalScrollBar().setValue
+        )
+        self.fixed_text.verticalScrollBar().valueChanged.connect(
+            self.original_text.verticalScrollBar().setValue
+        )
+
+        # Stats
+        orig_words = len(self.scene_content.split())
+        self.stats_label = QLabel(f"Original: {orig_words} words")
+        self.stats_label.setStyleSheet("color: #6c757d; font-size: 9pt; margin-left: 10px;")
+        layout.addWidget(self.stats_label)
 
         # Status label
         self.status_label = QLabel("Generating fix...")
-        self.status_label.setStyleSheet("color: #667eea; font-style: italic; margin: 8px;")
+        self.status_label.setObjectName("statusLabel")
         layout.addWidget(self.status_label)
 
         # Buttons
@@ -139,37 +169,104 @@ class AIFixDialog(QDialog):
 
         self.deny_btn = QPushButton("❌ Deny")
         self.deny_btn.setEnabled(False)
-        self.deny_btn.setStyleSheet("""
-            QPushButton {
-                background: #dc3545;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #c82333; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
         self.deny_btn.clicked.connect(self.reject)
         button_layout.addWidget(self.deny_btn)
 
         self.approve_btn = QPushButton("✅ Approve & Apply")
         self.approve_btn.setEnabled(False)
-        self.approve_btn.setStyleSheet("""
-            QPushButton {
-                background: #28a745;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #218838; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
+        self.approve_btn.setObjectName("primaryButton")
         self.approve_btn.clicked.connect(self.apply_fix)
         button_layout.addWidget(self.approve_btn)
 
         layout.addLayout(button_layout)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 14pt;
+                font-weight: bold;
+                padding: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                color: white;
+                border-radius: 6px;
+                margin-bottom: 5px;
+            }
+            
+            QLabel#infoLabel {
+                background: #1E1E1E;
+                color: #E0E0E0;
+                padding: 12px;
+                border: 1px solid #2D2D2D;
+                border-radius: 6px;
+                margin: 8px 0;
+            }
+            
+            QLabel#statusLabel {
+                color: #7C4DFF;
+                font-style: italic;
+                margin: 8px;
+            }
+            
+            QSplitter::handle {
+                background: #2D2D2D;
+                width: 2px;
+            }
+            
+            QTextEdit#originalText {
+                background: #1E1E1E;
+                color: #A0A0A0;
+                font-family: 'Georgia', serif;
+                font-size: 11pt;
+                padding: 15px;
+                border: 1px solid #333333;
+            }
+            
+            QTextEdit#fixedText {
+                background: #1A1A1A;
+                color: #E0E0E0;
+                font-family: 'Georgia', serif;
+                font-size: 11pt;
+                padding: 15px;
+                border: 1px solid #333333;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 10px 20px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QPushButton#primaryButton {
+                background-color: #00C853;
+                border: none;
+                color: white;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #69F0AE;
+                color: black;
+            }
+            
+            QPushButton:disabled {
+                background-color: #1A1A1A;
+                color: #555555;
+                border-color: #2D2D2D;
+            }
+        """)
 
     def generate_fix(self):
         """Start generating AI fix"""
@@ -195,18 +292,28 @@ class AIFixDialog(QDialog):
         """Handle fix generation completion"""
         self.fix_result = result
 
-        # Show fixed text
+        # Show highlighted text
+        from text_utils import html_to_plaintext
+        original_plain = html_to_plaintext(self.scene_content)
         fixed_plain = result.get('fixed_plain', '')
-        self.fixed_text.setPlainText(fixed_plain)
+        
+        orig_highlighted, fixed_highlighted = get_highlighted_diffs(original_plain, fixed_plain)
+        
+        self.original_text.setHtml(f"<div style='white-space: pre-wrap;'>{orig_highlighted}</div>")
+        self.fixed_text.setHtml(f"<div style='white-space: pre-wrap;'>{fixed_highlighted}</div>")
 
         # Enable buttons
         self.approve_btn.setEnabled(True)
         self.deny_btn.setEnabled(True)
+        
+        # Update stats
+        orig_words = len(self.original_text.toPlainText().split())
+        fixed_words = len(fixed_plain.split())
+        diff = fixed_words - orig_words
+        self.stats_label.setText(f"Original: {orig_words:,} words | Fixed: {fixed_words:,} words | Change: {diff:+,} words")
+        
         self.status_label.setText("✓ Fix generated! Review the changes.")
         self.status_label.setStyleSheet("color: #28a745; font-weight: bold; margin: 8px;")
-
-        # Switch to fixed tab
-        self.tabs.setCurrentIndex(1)
 
     def on_error(self, error: str):
         """Handle fix generation error"""

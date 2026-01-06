@@ -40,33 +40,34 @@ class ProjectTreeWidget(QTreeWidget):
         self.setIndentation(25)
         self.setIconSize(QSize(20, 20))
 
-        # Apply modern styling
+        # Apply modern futuristic styling
         self.setStyleSheet("""
             QTreeWidget {
-                background: white;
+                background: #1E1E1E;
                 border: none;
                 font-size: 11pt;
                 outline: none;
+                color: #E0E0E0;
+                padding: 5px;
             }
             
             QTreeWidget::item {
                 padding: 8px 5px;
-                border-bottom: 1px solid #f0f0f0;
-            }
-            
-            QTreeWidget::item:hover {
-                background: #f8f9fa;
-            }
-            
-            QTreeWidget::item:selected {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                color: white;
+                border-bottom: 1px solid #2D2D2D;
                 border-radius: 4px;
             }
             
+            QTreeWidget::item:hover {
+                background: #2D2D2D;
+            }
+            
+            QTreeWidget::item:selected {
+                background: #7C4DFF;
+                color: white;
+            }
+            
             QTreeWidget::branch {
-                background: white;
+                background: #1E1E1E;
             }
         """)
 
@@ -80,12 +81,10 @@ class ProjectTreeWidget(QTreeWidget):
         manuscript_root = QTreeWidgetItem(self)
         manuscript_root.setText(0, "📚 Manuscript")
         manuscript_root.setData(0, Qt.ItemDataRole.UserRole, "manuscript_root")
-        manuscript_root.setExpanded(True)
 
         characters_root = QTreeWidgetItem(self)
         characters_root.setText(0, "👥 Characters")
         characters_root.setData(0, Qt.ItemDataRole.UserRole, "characters_root")
-        characters_root.setExpanded(True)
 
         locations_root = QTreeWidgetItem(self)
         locations_root.setText(0, "🌍 Locations")
@@ -116,7 +115,6 @@ class ProjectTreeWidget(QTreeWidget):
             part_item = QTreeWidgetItem(parent_widget)
             part_item.setText(0, f"📚 {part.name}")
             part_item.setData(0, Qt.ItemDataRole.UserRole, part.id)
-            part_item.setExpanded(True)
 
             # Load chapters in this part
             chapters = self.db_manager.load_items(self.project_id, ItemType.CHAPTER, parent_id=part.id)
@@ -124,7 +122,6 @@ class ProjectTreeWidget(QTreeWidget):
                 chapter_item = QTreeWidgetItem(part_item)
                 chapter_item.setText(0, f"📖 {chapter.name}")
                 chapter_item.setData(0, Qt.ItemDataRole.UserRole, chapter.id)
-                chapter_item.setExpanded(True)
 
                 # Load scenes in this chapter
                 self._load_scenes(chapter_item, chapter.id)
@@ -135,7 +132,6 @@ class ProjectTreeWidget(QTreeWidget):
             chapter_item = QTreeWidgetItem(parent_widget)
             chapter_item.setText(0, f"📖 {chapter.name}")
             chapter_item.setData(0, Qt.ItemDataRole.UserRole, chapter.id)
-            chapter_item.setExpanded(True)
 
             # Load scenes in this chapter
             self._load_scenes(chapter_item, chapter.id)

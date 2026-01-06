@@ -74,21 +74,14 @@ class PersonaRewriteDialog(QDialog):
 
         # Header
         header = QLabel(f"✍️ Persona Rewrite - {self.scope.title()}")
-        header.setStyleSheet("""
-            font-size: 14pt;
-            font-weight: bold;
-            padding: 12px;
-            background: #667eea;
-            color: white;
-            border-radius: 6px;
-        """)
+        header.setObjectName("dialogHeader")
         layout.addWidget(header)
 
         # Persona selection
         persona_layout = QHBoxLayout()
 
         persona_label = QLabel("Writing Persona:")
-        persona_label.setStyleSheet("font-weight: bold;")
+        persona_label.setObjectName("sectionLabel")
         persona_layout.addWidget(persona_label)
 
         self.persona_combo = QComboBox()
@@ -107,7 +100,7 @@ class PersonaRewriteDialog(QDialog):
         # Info
         word_count = len(self.original_text.split())
         info = QLabel(f"Original text: {word_count:,} words")
-        info.setStyleSheet("color: #6c757d; padding: 5px; font-size: 9pt;")
+        info.setObjectName("infoLabel")
         layout.addWidget(info)
 
         # Tabs for original vs rewritten
@@ -117,30 +110,14 @@ class PersonaRewriteDialog(QDialog):
         self.original_text_edit = QTextEdit()
         self.original_text_edit.setReadOnly(True)
         self.original_text_edit.setPlainText(self.original_text)
-        self.original_text_edit.setStyleSheet("""
-            QTextEdit {
-                background: #fff3cd;
-                font-family: 'Georgia', serif;
-                font-size: 11pt;
-                line-height: 1.6;
-                padding: 15px;
-            }
-        """)
+        self.original_text_edit.setObjectName("originalText")
         self.tabs.addTab(self.original_text_edit, "📝 Original")
 
         # Rewritten
         self.rewritten_text_edit = QTextEdit()
         self.rewritten_text_edit.setReadOnly(True)
         self.rewritten_text_edit.setPlaceholderText("Rewritten text will appear here...")
-        self.rewritten_text_edit.setStyleSheet("""
-            QTextEdit {
-                background: #d4edda;
-                font-family: 'Georgia', serif;
-                font-size: 11pt;
-                line-height: 1.6;
-                padding: 15px;
-            }
-        """)
+        self.rewritten_text_edit.setObjectName("rewrittenText")
         self.tabs.addTab(self.rewritten_text_edit, "✨ Rewritten")
 
         layout.addWidget(self.tabs)
@@ -149,18 +126,7 @@ class PersonaRewriteDialog(QDialog):
         button_layout = QHBoxLayout()
 
         self.rewrite_btn = QPushButton("🎨 Rewrite")
-        self.rewrite_btn.setStyleSheet("""
-            QPushButton {
-                background: #667eea;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-                font-size: 11pt;
-            }
-            QPushButton:hover { background: #5a67d8; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
+        self.rewrite_btn.setObjectName("primaryButton")
         self.rewrite_btn.clicked.connect(self.start_rewrite)
         button_layout.addWidget(self.rewrite_btn)
 
@@ -171,22 +137,135 @@ class PersonaRewriteDialog(QDialog):
         button_layout.addWidget(self.cancel_btn)
 
         self.apply_btn = QPushButton("✅ Apply Rewrite")
-        self.apply_btn.setStyleSheet("""
-            QPushButton {
-                background: #28a745;
-                color: white;
-                padding: 10px 20px;
-                border-radius: 4px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background: #218838; }
-            QPushButton:disabled { background: #adb5bd; }
-        """)
+        self.apply_btn.setObjectName("applyButton")
         self.apply_btn.clicked.connect(self.apply_rewrite)
         self.apply_btn.setEnabled(False)
         button_layout.addWidget(self.apply_btn)
 
         layout.addLayout(button_layout)
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #121212;
+            }
+            
+            QLabel#dialogHeader {
+                font-size: 14pt;
+                font-weight: bold;
+                padding: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                color: white;
+                border-radius: 6px;
+                margin-bottom: 5px;
+            }
+            
+            QLabel#sectionLabel {
+                font-weight: bold;
+                color: #E0E0E0;
+            }
+            
+            QLabel#infoLabel {
+                color: #A0A0A0;
+                padding: 5px;
+                font-size: 9pt;
+            }
+            
+            QComboBox {
+                background-color: #1E1E1E;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 8px;
+                color: #E0E0E0;
+            }
+            
+            QTabWidget::pane {
+                border: 1px solid #2D2D2D;
+                background: #1A1A1A;
+                top: -1px;
+            }
+            
+            QTabBar::tab {
+                padding: 10px 20px;
+                margin-right: 2px;
+                background: #252526;
+                color: #A0A0A0;
+                border: 1px solid #2D2D2D;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }
+            
+            QTabBar::tab:selected {
+                background: #1A1A1A;
+                color: #7C4DFF;
+                border-bottom: 1px solid #1A1A1A;
+            }
+            
+            QTextEdit#originalText {
+                background: #1E1E1E;
+                color: #A0A0A0;
+                font-family: 'Georgia', serif;
+                font-size: 11pt;
+                line-height: 1.6;
+                padding: 15px;
+                border: 1px solid #333333;
+            }
+            
+            QTextEdit#rewrittenText {
+                background: #1A1A1A;
+                color: #E0E0E0;
+                font-family: 'Georgia', serif;
+                font-size: 11pt;
+                line-height: 1.6;
+                padding: 15px;
+                border: 1px solid #7C4DFF;
+            }
+            
+            QPushButton {
+                background-color: #252526;
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 10px 20px;
+                color: #E0E0E0;
+                font-weight: 500;
+            }
+            
+            QPushButton:hover {
+                background-color: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QPushButton#primaryButton {
+                background-color: #7C4DFF;
+                border: none;
+                color: white;
+                font-size: 11pt;
+            }
+            
+            QPushButton#primaryButton:hover {
+                background-color: #9E7CFF;
+            }
+            
+            QPushButton#applyButton {
+                background-color: #00C853;
+                border: none;
+                color: white;
+            }
+            
+            QPushButton#applyButton:hover {
+                background-color: #69F0AE;
+                color: black;
+            }
+            
+            QPushButton:disabled {
+                background-color: #1A1A1A;
+                color: #555555;
+                border-color: #2D2D2D;
+            }
+        """)
 
     def load_personas(self):
         """Load personas into combo box"""

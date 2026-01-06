@@ -394,12 +394,13 @@ class StoryInsightsDialog(QDialog):
         """Apply modern styling"""
         self.setStyleSheet("""
             QDialog {
-                background: #f8f9fa;
+                background: #121212;
             }
 
             QWidget#insightsHeader {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea, stop:1 #764ba2);
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #7C4DFF, stop:1 #5E35B1);
+                border-radius: 6px;
             }
 
             QLabel#mainTitle {
@@ -412,52 +413,53 @@ class StoryInsightsDialog(QDialog):
                 font-size: 11pt;
                 color: rgba(255, 255, 255, 0.95);
                 margin-top: 10px;
-                line-height: 1.6;
             }
 
             QLabel#sectionTitle {
                 font-size: 18pt;
                 font-weight: bold;
-                color: #212529;
-                border-bottom: 3px solid #667eea;
+                color: #7C4DFF;
+                border-bottom: 3px solid #7C4DFF;
                 padding-bottom: 5px;
             }
 
             QLabel#sectionDesc {
                 font-size: 10pt;
-                color: #6c757d;
+                color: #A0A0A0;
                 margin-top: 5px;
             }
 
             QProgressBar {
-                border: 2px solid #dee2e6;
+                border: 1px solid #2D2D2D;
                 border-radius: 5px;
                 text-align: center;
                 height: 25px;
+                background: #1A1A1A;
+                color: white;
             }
 
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #667eea, stop:1 #764ba2);
+                background: #7C4DFF;
             }
 
             QTextBrowser#textContent {
-                background: white;
-                border: 1px solid #dee2e6;
+                background: #1E1E1E;
+                border: 1px solid #2D2D2D;
                 border-radius: 8px;
                 padding: 15px;
+                color: #E0E0E0;
             }
 
             QLabel#errorLabel {
                 font-size: 14pt;
-                color: #dc3545;
+                color: #FF5252;
                 padding: 40px;
             }
 
             QPushButton#closeButton {
-                background: #6c757d;
-                color: white;
-                border: none;
+                background: #252526;
+                color: #E0E0E0;
+                border: 1px solid #3D3D3D;
                 border-radius: 6px;
                 padding: 12px 30px;
                 font-weight: bold;
@@ -466,6 +468,16 @@ class StoryInsightsDialog(QDialog):
             }
 
             QPushButton#closeButton:hover {
-                background: #5a6268;
+                background: #3D3D3D;
+                border-color: #7C4DFF;
+            }
+            
+            QScrollArea {
+                border: none;
+                background: transparent;
+            }
+            
+            QScrollArea QWidget {
+                background: transparent;
             }
         """)

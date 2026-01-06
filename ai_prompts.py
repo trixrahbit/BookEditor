@@ -378,7 +378,7 @@ Analyze:
         compiled_text = "\n\n---\n\n".join(compiled)
 
         return f"""
-    At the end of this chapter, produce a reader-knowledge snapshot.
+    At the end of this chapter, produce a reader-clarity snapshot simulating 3 types of readers.
 
     CHAPTER: {chapter_name}
     TEXT:
@@ -386,10 +386,21 @@ Analyze:
 
     Return JSON only:
     {{
-      "reader_beliefs": [string],
-      "facts_true": [string],
-      "facts_ambiguous": [string],
-      "questions_raised": [string]
+      "careful_reader": {{
+        "understanding": "detailed summary of what they know",
+        "confusion": "any subtle points they might question",
+        "missed": "what they definitely missed"
+      }},
+      "skimmer": {{
+        "understanding": "high-level gist they caught",
+        "confusion": "major plot points they might have mixed up",
+        "missed": "subtext or secondary details lost"
+      }},
+      "distracted_reader": {{
+        "understanding": "vague impressions",
+        "confusion": "who is where and why",
+        "missed": "most things except major actions"
+      }}
     }}
     """.strip()
 
@@ -463,16 +474,28 @@ Analyze:
 
     def book_reader_sim_prompt(book_context: Dict[str, Any]) -> str:
         return f"""
-    Simulate 3 readers:
+    Simulate 3 readers for the entire book:
     - careful reader
     - skimmer
     - distracted reader
 
     Return JSON only:
     {{
-      "careful_reader": {{"misunderstandings": [string], "missed": [string]}},
-      "skimmer": {{"misunderstandings": [string], "missed": [string]}},
-      "distracted_reader": {{"misunderstandings": [string], "missed": [string]}}
+      "careful_reader": {{
+        "understanding": "detailed summary",
+        "confusion": "any subtle points",
+        "missed": "what they missed"
+      }},
+      "skimmer": {{
+        "understanding": "high-level gist",
+        "confusion": "mixed up points",
+        "missed": "lost details"
+      }},
+      "distracted_reader": {{
+        "understanding": "vague impressions",
+        "confusion": "unclear points",
+        "missed": "most things"
+      }}
     }}
 
     MANUSCRIPT:
@@ -485,42 +508,50 @@ class PromptParser:
 
     @staticmethod
     def parse_scene_properties(response: str) -> dict:
-        """Parse scene properties response"""
+        """Parse scene properties response with robustness"""
         properties = {}
+        if not response:
+            return properties
 
         lines = response.strip().split('\n')
         current_key = None
         current_value = []
 
+        # Keywords to look for (case-insensitive)
+        keywords = {
+            'SUMMARY': 'summary',
+            'GOAL': 'goal',
+            'CONFLICT': 'conflict',
+            'OUTCOME': 'outcome'
+        }
+
         for line in lines:
-            line = line.strip()
-            if not line:
+            clean_line = line.strip()
+            if not clean_line:
                 continue
 
-            # Check if line starts with a property label
-            if line.startswith('SUMMARY:'):
+            # Check if line starts with any of our keywords
+            # Handle markdown like **SUMMARY:** or just SUMMARY:
+            found_key = None
+            for kw, key_id in keywords.items():
+                # Look for keyword at start, ignoring markdown asterisks
+                pattern = clean_line.upper().replace('*', '').strip()
+                if pattern.startswith(kw + ':'):
+                    found_key = key_id
+                    # Get the content after the colon
+                    content = clean_line.split(':', 1)[1].strip()
+                    break
+
+            if found_key:
+                # Save previous key if exists
                 if current_key:
                     properties[current_key] = ' '.join(current_value).strip()
-                current_key = 'summary'
-                current_value = [line.split(':', 1)[1].strip()]
-            elif line.startswith('GOAL:'):
-                if current_key:
-                    properties[current_key] = ' '.join(current_value).strip()
-                current_key = 'goal'
-                current_value = [line.split(':', 1)[1].strip()]
-            elif line.startswith('CONFLICT:'):
-                if current_key:
-                    properties[current_key] = ' '.join(current_value).strip()
-                current_key = 'conflict'
-                current_value = [line.split(':', 1)[1].strip()]
-            elif line.startswith('OUTCOME:'):
-                if current_key:
-                    properties[current_key] = ' '.join(current_value).strip()
-                current_key = 'outcome'
-                current_value = [line.split(':', 1)[1].strip()]
+                
+                current_key = found_key
+                current_value = [content]
             elif current_key:
                 # Continuation of current property
-                current_value.append(line)
+                current_value.append(clean_line)
 
         # Don't forget the last property
         if current_key:
