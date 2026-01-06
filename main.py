@@ -195,6 +195,9 @@ class MainWindow(QMainWindow):
 
         # Set initial splitter sizes - give more space to tree and metadata
         main_splitter.setSizes([320, 600, 320])
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 3)
+        main_splitter.setStretchFactor(2, 1)
 
         main_layout.addWidget(main_splitter)
 
