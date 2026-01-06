@@ -1264,7 +1264,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(self, "Applied", "Scene rewritten successfully!")
 
     def reformat_project_scenes_with_ai(self):
-        """Reformat all scenes in the project using AI (no word changes)"""
+        """Open AI reformat dialog to select chapters/scenes and run formatting."""
         if not self.current_project:
             QMessageBox.warning(self, "No Project", "Please open a project first")
             return
@@ -1277,26 +1277,15 @@ class MainWindow(QMainWindow):
             )
             return
 
-        reply = QMessageBox.question(
-            self,
-            "Reformat All Scenes",
-            "This will send every scene in every chapter to the AI for formatting.\n"
-            "No words will be changed, only formatting (line/paragraph breaks).\n\n"
-            "Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
+        # Open the selector dialog — nothing runs until the user clicks Start
         from ai_reformat_dialog import AIReformatDialog
 
         dialog = AIReformatDialog(
-            self,
-            self.ai_manager,
-            self.db_manager,
-            self.current_project.id,
-            self.editor
+            parent=self,
+            ai_manager=self.ai_manager,
+            db_manager=self.db_manager,
+            project_id=self.current_project.id,
+            editor=self.editor
         )
         dialog.exec()
 
