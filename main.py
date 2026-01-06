@@ -165,9 +165,7 @@ class MainWindow(QMainWindow):
         self.metadata_panel = MetadataPanel()
         self.metadata_panel.setMinimumWidth(280)
         self.metadata_panel.metadata_changed.connect(self._safe_slot(self.on_metadata_changed))
-        self.metadata_panel.collapsed_changed.connect(
-            self._safe_slot(self.on_metadata_panel_collapsed)
-        )
+
 
         # Chapter insights viewer
         self.chapter_insights = ChapterInsightsViewer()
@@ -181,6 +179,7 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.metadata_panel)
         right_layout.addWidget(self.chapter_insights)
+        self.right_panel = right_panel
         self.right_panel = right_panel
         self.metadata_panel.collapse_toggled.connect(
             self._safe_slot(self.on_properties_panel_toggled)
@@ -216,7 +215,29 @@ class MainWindow(QMainWindow):
         self.autosave.saving_finished.connect(lambda: self.statusBar.showMessage("Saved ✓", 2000))
         # Store splitter for settings
         self.main_splitter = main_splitter
-        self.update_editor_toolbar_layout()
+        self._right_panel_sizes = None
+        self._right_panel_collapsed_width = 36
+
+    def on_properties_panel_toggled(self, collapsed: bool):
+        """Collapse or expand the properties panel within the splitter."""
+        if collapsed:
+            self._right_panel_sizes = self.main_splitter.sizes()
+            self.right_panel.setMinimumWidth(self._right_panel_collapsed_width)
+            self.right_panel.setMaximumWidth(self._right_panel_collapsed_width)
+            sizes = self.main_splitter.sizes()
+            if len(sizes) == 3:
+                self.main_splitter.setSizes([
+                    sizes[0],
+                    sizes[1],
+                    self._right_panel_collapsed_width
+                ])
+        else:
+            self.right_panel.setMinimumWidth(0)
+            self.right_panel.setMaximumWidth(16777215)
+            if self._right_panel_sizes and len(self._right_panel_sizes) == 3:
+                self.main_splitter.setSizes(self._right_panel_sizes)
+            else:
+                self.main_splitter.setSizes([320, 600, 320])
 
 
     def create_menu_bar(self):
