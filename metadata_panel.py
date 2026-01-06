@@ -17,6 +17,7 @@ from db_manager import DatabaseManager
 
 class MetadataPanel(QWidget):
     metadata_changed = pyqtSignal()
+    collapsed_changed = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -89,6 +90,7 @@ class MetadataPanel(QWidget):
         else:
             self.toggle_button.setText("−")
             self.toggle_button.setToolTip("Collapse properties panel")
+        self.collapsed_changed.emit(self.is_collapsed)
 
     def load_item(self, item, db_manager: DatabaseManager, project_id: str):
         """Load an item's metadata"""
