@@ -178,6 +178,10 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.metadata_panel)
         right_layout.addWidget(self.chapter_insights)
+        self.right_panel = right_panel
+        self.metadata_panel.collapse_toggled.connect(
+            self._safe_slot(self.on_properties_panel_toggled)
+        )
 
         # Hide chapter insights initially
         self.chapter_insights.setVisible(False)
@@ -191,10 +195,13 @@ class MainWindow(QMainWindow):
         # Add widgets to splitter
         main_splitter.addWidget(self.project_tree)
         main_splitter.addWidget(self.editor)
-        main_splitter.addWidget(right_panel)
+        main_splitter.addWidget(self.right_panel)
 
         # Set initial splitter sizes - give more space to tree and metadata
         main_splitter.setSizes([320, 600, 320])
+        main_splitter.setStretchFactor(0, 1)
+        main_splitter.setStretchFactor(1, 3)
+        main_splitter.setStretchFactor(2, 1)
 
         main_layout.addWidget(main_splitter)
 
@@ -206,6 +213,29 @@ class MainWindow(QMainWindow):
         self.autosave.saving_finished.connect(lambda: self.statusBar.showMessage("Saved ✓", 2000))
         # Store splitter for settings
         self.main_splitter = main_splitter
+        self._right_panel_sizes = None
+        self._right_panel_collapsed_width = 36
+
+    def on_properties_panel_toggled(self, collapsed: bool):
+        """Collapse or expand the properties panel within the splitter."""
+        if collapsed:
+            self._right_panel_sizes = self.main_splitter.sizes()
+            self.right_panel.setMinimumWidth(self._right_panel_collapsed_width)
+            self.right_panel.setMaximumWidth(self._right_panel_collapsed_width)
+            sizes = self.main_splitter.sizes()
+            if len(sizes) == 3:
+                self.main_splitter.setSizes([
+                    sizes[0],
+                    sizes[1],
+                    self._right_panel_collapsed_width
+                ])
+        else:
+            self.right_panel.setMinimumWidth(0)
+            self.right_panel.setMaximumWidth(16777215)
+            if self._right_panel_sizes and len(self._right_panel_sizes) == 3:
+                self.main_splitter.setSizes(self._right_panel_sizes)
+            else:
+                self.main_splitter.setSizes([320, 600, 320])
 
 
     def create_menu_bar(self):
