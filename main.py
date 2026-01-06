@@ -165,6 +165,9 @@ class MainWindow(QMainWindow):
         self.metadata_panel = MetadataPanel()
         self.metadata_panel.setMinimumWidth(280)
         self.metadata_panel.metadata_changed.connect(self._safe_slot(self.on_metadata_changed))
+        self.metadata_panel.collapsed_changed.connect(
+            self._safe_slot(self.on_metadata_panel_collapsed)
+        )
 
         # Chapter insights viewer
         self.chapter_insights = ChapterInsightsViewer()
@@ -209,6 +212,7 @@ class MainWindow(QMainWindow):
         self.autosave.saving_finished.connect(lambda: self.statusBar.showMessage("Saved ✓", 2000))
         # Store splitter for settings
         self.main_splitter = main_splitter
+        self.update_editor_toolbar_layout()
 
 
     def create_menu_bar(self):
@@ -640,6 +644,7 @@ class MainWindow(QMainWindow):
 
             # Still load in editor (read-only chapter view)
             self.editor.load_item(item, self.db_manager, self.current_project.id)
+            self.update_editor_toolbar_layout()
         else:
             # Show normal metadata for other items
             self.metadata_panel.setVisible(True)
@@ -649,6 +654,7 @@ class MainWindow(QMainWindow):
             # Load normally
             self.editor.load_item(item, self.db_manager, self.current_project.id)
             self.metadata_panel.load_item(item, self.db_manager, self.current_project.id)
+            self.update_editor_toolbar_layout()
 
     def on_content_changed(self):
         """Handle content changes in editor"""
@@ -659,6 +665,19 @@ class MainWindow(QMainWindow):
         """Handle metadata changes"""
         # Auto-save could be implemented here
         pass
+
+    def on_metadata_panel_collapsed(self, is_collapsed: bool):
+        """Respond to properties panel collapse/expand."""
+        self.update_editor_toolbar_layout(is_collapsed=is_collapsed)
+
+    def update_editor_toolbar_layout(self, is_collapsed: Optional[bool] = None):
+        """Update editor toolbar layout based on metadata panel visibility."""
+        if not self.metadata_panel.isVisible():
+            self.editor.set_toolbar_compact(False)
+            return
+
+        collapsed = self.metadata_panel.is_collapsed if is_collapsed is None else is_collapsed
+        self.editor.set_toolbar_compact(not collapsed)
 
     def run_ai_analysis(self, analysis_type: str):
         """Run AI analysis on the project"""
