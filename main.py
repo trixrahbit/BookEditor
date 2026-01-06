@@ -358,6 +358,12 @@ class MainWindow(QMainWindow):
         rewrite_scene_action = QAction("📄 Rewrite Entire Scene", self)
         rewrite_scene_action.triggered.connect(self._safe_slot(self.rewrite_scene_with_persona))
         writing_menu.addAction(rewrite_scene_action)
+
+        writing_menu.addSeparator()
+
+        reformat_scenes_action = QAction("✨ Reformat Using AI...", self)
+        reformat_scenes_action.triggered.connect(self._safe_slot(self.reformat_project_scenes_with_ai))
+        writing_menu.addAction(reformat_scenes_action)
         # Project menu
         project_menu = menubar.addMenu("&Project")
 
@@ -1256,6 +1262,43 @@ class MainWindow(QMainWindow):
                 self.editor.load_item(current_item, self.db_manager, self.current_project.id)
 
                 QMessageBox.information(self, "Applied", "Scene rewritten successfully!")
+
+    def reformat_project_scenes_with_ai(self):
+        """Reformat all scenes in the project using AI (no word changes)"""
+        if not self.current_project:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        if not self.ai_manager.is_configured():
+            QMessageBox.warning(
+                self,
+                "AI Not Configured",
+                "Please configure Azure OpenAI in Settings before using this feature."
+            )
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Reformat All Scenes",
+            "This will send every scene in every chapter to the AI for formatting.\n"
+            "No words will be changed, only formatting (line/paragraph breaks).\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        from ai_reformat_dialog import AIReformatDialog
+
+        dialog = AIReformatDialog(
+            self,
+            self.ai_manager,
+            self.db_manager,
+            self.current_project.id,
+            self.editor
+        )
+        dialog.exec()
 
     def fix_chapter_ai(self, chapter_id: str):
         """Fix chapter issues with AI"""
