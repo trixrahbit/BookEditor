@@ -6,7 +6,11 @@ Main application entry point
 import json
 import os
 import sys
-from typing import Dict, Any
+import threading
+import logging
+from logging.handlers import RotatingFileHandler
+from typing import Dict, Any, Callable, Optional
+from functools import wraps
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
@@ -33,6 +37,63 @@ from analyzer import AIAnalyzer
 from story_extractor import StoryExtractor
 from chapter_insights_viewer import ChapterInsightsViewer
 
+LOG_PATH: Optional[Path] = None
+
+
+def setup_logging() -> Path:
+    """Configure application logging."""
+    global LOG_PATH
+    log_dir = Path.home() / ".novelist_ai" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "novelist_ai.log"
+    LOG_PATH = log_path
+
+    logger = logging.getLogger("novelist_ai")
+    logger.setLevel(logging.INFO)
+
+    if not logger.handlers:
+        formatter = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+        )
+        file_handler = RotatingFileHandler(
+            log_path, maxBytes=1_000_000, backupCount=5, encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(formatter)
+
+        logger.addHandler(file_handler)
+        logger.addHandler(stream_handler)
+
+    return log_path
+
+
+def install_exception_hooks() -> None:
+    """Install global exception hooks to log unexpected errors."""
+    logger = logging.getLogger("novelist_ai")
+
+    def handle_exception(exc_type, exc, tb):
+        logger.error("Unhandled exception", exc_info=(exc_type, exc, tb))
+        app = QApplication.instance()
+        if app:
+            log_hint = f"\n\nLog file: {LOG_PATH}" if LOG_PATH else ""
+            QMessageBox.critical(
+                None,
+                "Unexpected Error",
+                "An unexpected error occurred. Please check the logs for details."
+                f"{log_hint}",
+            )
+
+    def handle_thread_exception(args):
+        logger.error(
+            "Unhandled exception in thread %s",
+            args.thread.name,
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    sys.excepthook = handle_exception
+    threading.excepthook = handle_thread_exception
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -43,13 +104,33 @@ class MainWindow(QMainWindow):
         self.story_extractor = None
         self.current_project: Project = None
         self.autosave = AutoSaveManager(self, delay_ms=1000)  # 1 second delay
-        self.autosave.save_triggered.connect(self.save_current_content)
+        self.autosave.save_triggered.connect(self._safe_slot(self.save_current_content))
         self.init_ui()
         self.restore_settings()
         self.insight_db = None
         self.insight_service = None
         self.persona_manager = None
         self.ai_manager = ai_manager
+
+    def _safe_slot(self, func: Callable) -> Callable:
+        """Wrap a slot to prevent exceptions from crashing the app."""
+        logger = logging.getLogger("novelist_ai")
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception:
+                logger.exception("Error in slot: %s", getattr(func, "__name__", repr(func)))
+                log_hint = f"\n\nLog file: {LOG_PATH}" if LOG_PATH else ""
+                QMessageBox.critical(
+                    self,
+                    "Unexpected Error",
+                    "An unexpected error occurred. Please check the logs for details."
+                    f"{log_hint}",
+                )
+
+        return wrapper
 
     def init_ui(self):
         """Initialize the user interface"""
@@ -69,27 +150,27 @@ class MainWindow(QMainWindow):
         # Left panel - Project tree
         self.project_tree = ProjectTreeWidget()
         self.project_tree.setMinimumWidth(280)
-        self.project_tree.item_selected.connect(self.on_item_selected)
+        self.project_tree.item_selected.connect(self._safe_slot(self.on_item_selected))
 
         # Center panel - Editor
         self.editor = EditorWidget()
-        self.editor.content_changed.connect(self.on_content_changed)
-        self.editor.rewrite_requested.connect(self.rewrite_selection_with_persona)
-        self.editor.rewrite_selection_action_requested.connect(self.rewrite_selection_with_persona)
-        self.editor.rewrite_scene_action_requested.connect(self.rewrite_scene_with_persona)
-        self.project_tree.ai_fill_requested.connect(self.on_ai_fill_scene)
+        self.editor.content_changed.connect(self._safe_slot(self.on_content_changed))
+        self.editor.rewrite_requested.connect(self._safe_slot(self.rewrite_selection_with_persona))
+        self.editor.rewrite_selection_action_requested.connect(self._safe_slot(self.rewrite_selection_with_persona))
+        self.editor.rewrite_scene_action_requested.connect(self._safe_slot(self.rewrite_scene_with_persona))
+        self.project_tree.ai_fill_requested.connect(self._safe_slot(self.on_ai_fill_scene))
 
         # Right panel - Metadata
         # Right panel - Smart panel (metadata OR chapter insights)
         self.metadata_panel = MetadataPanel()
         self.metadata_panel.setMinimumWidth(280)
-        self.metadata_panel.metadata_changed.connect(self.on_metadata_changed)
+        self.metadata_panel.metadata_changed.connect(self._safe_slot(self.on_metadata_changed))
 
         # Chapter insights viewer
         self.chapter_insights = ChapterInsightsViewer()
         self.chapter_insights.setMinimumWidth(280)
-        self.chapter_insights.analyze_requested.connect(self.analyze_chapter_ai)
-        self.chapter_insights.fix_requested.connect(self.on_insight_fix_requested)
+        self.chapter_insights.analyze_requested.connect(self._safe_slot(self.analyze_chapter_ai))
+        self.chapter_insights.fix_requested.connect(self._safe_slot(self.on_insight_fix_requested))
 
         # Stack them (only one visible at a time)
         right_panel = QWidget()
@@ -104,8 +185,8 @@ class MainWindow(QMainWindow):
         # NOW create menu bar and toolbar (after widgets exist)
         self.create_menu_bar()
         self.create_toolbar()
-        self.project_tree.ai_analyze_requested.connect(self.analyze_chapter_ai)
-        self.project_tree.ai_fix_requested.connect(self.fix_chapter_ai)
+        self.project_tree.ai_analyze_requested.connect(self._safe_slot(self.analyze_chapter_ai))
+        self.project_tree.ai_fix_requested.connect(self._safe_slot(self.fix_chapter_ai))
 
         # Add widgets to splitter
         main_splitter.addWidget(self.project_tree)
@@ -136,25 +217,25 @@ class MainWindow(QMainWindow):
 
         new_action = QAction("&New Project...", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
-        new_action.triggered.connect(self.new_project)
+        new_action.triggered.connect(self._safe_slot(self.new_project))
         file_menu.addAction(new_action)
 
         open_action = QAction("&Open Project...", self)
         open_action.setShortcut(QKeySequence.StandardKey.Open)
-        open_action.triggered.connect(self.open_project)
+        open_action.triggered.connect(self._safe_slot(self.open_project))
         file_menu.addAction(open_action)
 
         file_menu.addSeparator()
 
         save_action = QAction("&Save", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self.save_project)
+        save_action.triggered.connect(self._safe_slot(self.save_project))
         file_menu.addAction(save_action)
 
         file_menu.addSeparator()
 
         import_docx_action = QAction("📥 Import from Word Document...", self)
-        import_docx_action.triggered.connect(self.import_docx)
+        import_docx_action.triggered.connect(self._safe_slot(self.import_docx))
         file_menu.addAction(import_docx_action)
 
         file_menu.addSeparator()
@@ -162,18 +243,18 @@ class MainWindow(QMainWindow):
         export_menu = file_menu.addMenu("&Export")
 
         export_md_action = QAction("Export as &Markdown...", self)
-        export_md_action.triggered.connect(lambda: self.export_project("markdown"))
+        export_md_action.triggered.connect(self._safe_slot(lambda: self.export_project("markdown")))
         export_menu.addAction(export_md_action)
 
         export_docx_action = QAction("Export as &Word Document...", self)
-        export_docx_action.triggered.connect(lambda: self.export_project("docx"))
+        export_docx_action.triggered.connect(self._safe_slot(lambda: self.export_project("docx")))
         export_menu.addAction(export_docx_action)
 
         file_menu.addSeparator()
 
         settings_action = QAction("&Settings...", self)
         settings_action.setShortcut(QKeySequence.StandardKey.Preferences)
-        settings_action.triggered.connect(self.show_settings)
+        settings_action.triggered.connect(self._safe_slot(self.show_settings))
         file_menu.addAction(settings_action)
 
         file_menu.addSeparator()
@@ -188,132 +269,132 @@ class MainWindow(QMainWindow):
 
         undo_action = QAction("&Undo", self)
         undo_action.setShortcut(QKeySequence.StandardKey.Undo)
-        undo_action.triggered.connect(self.editor.undo)
+        undo_action.triggered.connect(self._safe_slot(self.editor.undo))
         edit_menu.addAction(undo_action)
 
         redo_action = QAction("&Redo", self)
         redo_action.setShortcut(QKeySequence.StandardKey.Redo)
-        redo_action.triggered.connect(self.editor.redo)
+        redo_action.triggered.connect(self._safe_slot(self.editor.redo))
         edit_menu.addAction(redo_action)
 
         edit_menu.addSeparator()
 
         cut_action = QAction("Cu&t", self)
         cut_action.setShortcut(QKeySequence.StandardKey.Cut)
-        cut_action.triggered.connect(self.editor.cut)
+        cut_action.triggered.connect(self._safe_slot(self.editor.cut))
         edit_menu.addAction(cut_action)
 
         copy_action = QAction("&Copy", self)
         copy_action.setShortcut(QKeySequence.StandardKey.Copy)
-        copy_action.triggered.connect(self.editor.copy)
+        copy_action.triggered.connect(self._safe_slot(self.editor.copy))
         edit_menu.addAction(copy_action)
 
         paste_action = QAction("&Paste", self)
         paste_action.setShortcut(QKeySequence.StandardKey.Paste)
-        paste_action.triggered.connect(self.editor.paste)
+        paste_action.triggered.connect(self._safe_slot(self.editor.paste))
         edit_menu.addAction(paste_action)
         # Writing menu
         writing_menu = menubar.addMenu("&Writing")
 
         manage_personas_action = QAction("✍️ Manage Personas...", self)
-        manage_personas_action.triggered.connect(self.manage_writing_personas)
+        manage_personas_action.triggered.connect(self._safe_slot(self.manage_writing_personas))
         writing_menu.addAction(manage_personas_action)
 
         writing_menu.addSeparator()
 
         rewrite_selection_action = QAction("🎨 Rewrite Selection with Persona", self)
         rewrite_selection_action.setShortcut("Ctrl+Shift+R")
-        rewrite_selection_action.triggered.connect(self.rewrite_selection_with_persona)
+        rewrite_selection_action.triggered.connect(self._safe_slot(self.rewrite_selection_with_persona))
         writing_menu.addAction(rewrite_selection_action)
 
         rewrite_scene_action = QAction("📄 Rewrite Entire Scene", self)
-        rewrite_scene_action.triggered.connect(self.rewrite_scene_with_persona)
+        rewrite_scene_action.triggered.connect(self._safe_slot(self.rewrite_scene_with_persona))
         writing_menu.addAction(rewrite_scene_action)
         # Project menu
         project_menu = menubar.addMenu("&Project")
 
         add_part_action = QAction("Add &Part", self)
-        add_part_action.triggered.connect(lambda: self.project_tree.add_item("part"))
+        add_part_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("part")))
         project_menu.addAction(add_part_action)
 
         add_chapter_action = QAction("Add &Chapter", self)
-        add_chapter_action.triggered.connect(lambda: self.project_tree.add_item("chapter"))
+        add_chapter_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("chapter")))
         project_menu.addAction(add_chapter_action)
 
         add_scene_action = QAction("Add &Scene", self)
         add_scene_action.setShortcut("Ctrl+N")
-        add_scene_action.triggered.connect(lambda: self.project_tree.add_item("scene"))
+        add_scene_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("scene")))
         project_menu.addAction(add_scene_action)
 
         project_menu.addSeparator()
 
         add_character_action = QAction("Add Character...", self)
-        add_character_action.triggered.connect(lambda: self.project_tree.add_item("character"))
+        add_character_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("character")))
         project_menu.addAction(add_character_action)
 
         add_location_action = QAction("Add Location...", self)
-        add_location_action.triggered.connect(lambda: self.project_tree.add_item("location"))
+        add_location_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("location")))
         project_menu.addAction(add_location_action)
 
         add_plot_action = QAction("Add Plot Thread...", self)
-        add_plot_action.triggered.connect(lambda: self.project_tree.add_item("plot"))
+        add_plot_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("plot")))
         project_menu.addAction(add_plot_action)
 
         # AI menu
         ai_menu = menubar.addMenu("&AI Analysis")
 
         analyze_character_action = QAction("📝 Extract &Characters from Text", self)
-        analyze_character_action.triggered.connect(self.extract_characters)
+        analyze_character_action.triggered.connect(self._safe_slot(self.extract_characters))
         ai_menu.addAction(analyze_character_action)
 
         analyze_location_action = QAction("📍 Extract &Locations from Text", self)
-        analyze_location_action.triggered.connect(self.extract_locations)
+        analyze_location_action.triggered.connect(self._safe_slot(self.extract_locations))
         ai_menu.addAction(analyze_location_action)
 
         analyze_plot_action = QAction("🎭 Analyze &Plot Structure", self)
-        analyze_plot_action.triggered.connect(self.analyze_plot)
+        analyze_plot_action.triggered.connect(self._safe_slot(self.analyze_plot))
         ai_menu.addAction(analyze_plot_action)
 
         analyze_timeline_action = QAction("⏰ Analyze &Timeline", self)
-        analyze_timeline_action.triggered.connect(self.analyze_timeline)
+        analyze_timeline_action.triggered.connect(self._safe_slot(self.analyze_timeline))
         ai_menu.addAction(analyze_timeline_action)
 
         analyze_style_action = QAction("✍️ Analyze Writing &Style", self)
-        analyze_style_action.triggered.connect(self.analyze_writing_style)
+        analyze_style_action.triggered.connect(self._safe_slot(self.analyze_writing_style))
         ai_menu.addAction(analyze_style_action)
 
         ai_menu.addSeparator()
 
         check_consistency_action = QAction("🔍 Check Story Consistency", self)
-        check_consistency_action.triggered.connect(self.check_story_consistency)
+        check_consistency_action.triggered.connect(self._safe_slot(self.check_story_consistency))
         ai_menu.addAction(check_consistency_action)
 
         ai_menu.addSeparator()
 
         full_analysis_action = QAction("&Full Analysis Report", self)
-        full_analysis_action.triggered.connect(lambda: self.run_full_ai_analysis("full"))
+        full_analysis_action.triggered.connect(self._safe_slot(lambda: self.run_full_ai_analysis("full")))
         ai_menu.addAction(full_analysis_action)
 
         ai_menu.addSeparator()
 
         story_insights_action = QAction("📊 Deep Insights (Comprehensive)", self)
-        story_insights_action.triggered.connect(self.show_story_insights)
+        story_insights_action.triggered.connect(self._safe_slot(self.show_story_insights))
         ai_menu.addAction(story_insights_action)
         ai_menu.addSeparator()
 
         view_insights_action = QAction("📊 View Story Insights", self)
-        view_insights_action.triggered.connect(self.view_story_insights)
+        view_insights_action.triggered.connect(self._safe_slot(self.view_story_insights))
         ai_menu.addAction(view_insights_action)
         ai_menu.addSeparator()
 
         batch_analyze_action = QAction("🚀 Analyze All Chapters", self)
-        batch_analyze_action.triggered.connect(self.batch_analyze_chapters)
+        batch_analyze_action.triggered.connect(self._safe_slot(self.batch_analyze_chapters))
         ai_menu.addAction(batch_analyze_action)
         # Help menu
         help_menu = menubar.addMenu("&Help")
 
         about_action = QAction("&About", self)
-        about_action.triggered.connect(self.show_about)
+        about_action.triggered.connect(self._safe_slot(self.show_about))
         help_menu.addAction(about_action)
 
     def create_toolbar(self):
@@ -324,13 +405,13 @@ class MainWindow(QMainWindow):
 
         # Add common actions
         new_scene_action = QAction("New Scene", self)
-        new_scene_action.triggered.connect(lambda: self.project_tree.add_item("scene"))
+        new_scene_action.triggered.connect(self._safe_slot(lambda: self.project_tree.add_item("scene")))
         toolbar.addAction(new_scene_action)
 
         toolbar.addSeparator()
 
         save_action = QAction("Save", self)
-        save_action.triggered.connect(self.save_project)
+        save_action.triggered.connect(self._safe_slot(self.save_project))
         toolbar.addAction(save_action)
 
     def new_project(self):
@@ -637,9 +718,9 @@ class MainWindow(QMainWindow):
             chapters
         )
 
-        worker.progress.connect(dialog.update_progress)
-        worker.finished.connect(dialog.show_analysis_results)
-        worker.error.connect(dialog.show_error)
+        worker.progress.connect(self._safe_slot(dialog.update_progress))
+        worker.finished.connect(self._safe_slot(dialog.show_analysis_results))
+        worker.error.connect(self._safe_slot(dialog.show_error))
 
         worker.start()
         dialog.exec()
@@ -1153,6 +1234,8 @@ def main():
     """Main entry point for the application"""
     print("Starting Novelist AI...")
     print(f"Python version: {sys.version}")
+    setup_logging()
+    install_exception_hooks()
 
     # Enable high DPI scaling
     QApplication.setHighDpiScaleFactorRoundingPolicy(
