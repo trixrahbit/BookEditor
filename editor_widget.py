@@ -108,6 +108,8 @@ class EditorWidget(QWidget):
         toolbar.setObjectName("editorToolbar")
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(18, 18))
+        self.toolbar = toolbar
+        self.toolbar_compact = False
 
         # Font Family
         self.font_combo = QFontComboBox()
@@ -115,7 +117,7 @@ class EditorWidget(QWidget):
         self.font_combo.currentFontChanged.connect(self.change_font_family)
         toolbar.addWidget(self.font_combo)
 
-        toolbar.addSeparator()
+        self.toolbar_font_separator = toolbar.addSeparator()
 
         # Font Size
         self.font_size_combo = QComboBox()
@@ -126,7 +128,7 @@ class EditorWidget(QWidget):
         self.font_size_combo.activated.connect(self.change_font_size_combo)
         toolbar.addWidget(self.font_size_combo)
 
-        toolbar.addSeparator()
+        self.toolbar_size_separator = toolbar.addSeparator()
 
         # Bold
         bold_action = QAction("B", self)
@@ -256,6 +258,20 @@ class EditorWidget(QWidget):
 
         # Connect cursor position changed to update toolbar
         self.text_edit.cursorPositionChanged.connect(self.update_format_actions)
+
+    def set_toolbar_compact(self, compact: bool):
+        """Toggle toolbar into a compact layout when space is constrained."""
+        if self.toolbar_compact == compact:
+            return
+        self.toolbar_compact = compact
+
+        self.font_combo.setVisible(not compact)
+        self.font_size_combo.setVisible(not compact)
+        self.toolbar_font_separator.setVisible(not compact)
+        self.toolbar_size_separator.setVisible(not compact)
+
+        icon_size = QSize(16, 16) if compact else QSize(18, 18)
+        self.toolbar.setIconSize(icon_size)
 
     def html_to_plaintext(self, html: str) -> str:
         """Convert stored HTML to plain text while preserving paragraph breaks."""

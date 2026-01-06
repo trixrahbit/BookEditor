@@ -17,7 +17,7 @@ from db_manager import DatabaseManager
 
 class MetadataPanel(QWidget):
     metadata_changed = pyqtSignal()
-    collapse_toggled = pyqtSignal(bool)
+    collapsed_changed = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -39,9 +39,9 @@ class MetadataPanel(QWidget):
         title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(15, 15, 15, 15)
 
-        self.title_label = QLabel("Properties")
-        self.title_label.setObjectName("titleLabel")
-        title_layout.addWidget(self.title_label)
+        title_label = QLabel("Properties")
+        title_label.setObjectName("titleLabel")
+        title_layout.addWidget(title_label)
         title_layout.addStretch()
 
         self.toggle_button = QToolButton()
@@ -82,19 +82,15 @@ class MetadataPanel(QWidget):
     def toggle_collapsed(self):
         """Collapse or expand the metadata panel body."""
         self.is_collapsed = not self.is_collapsed
+        self.scroll.setVisible(not self.is_collapsed)
+        self.save_button.setVisible(not self.is_collapsed)
         if self.is_collapsed:
-            self.scroll.setVisible(False)
-            self.save_button.setVisible(False)
-            self.title_label.setVisible(False)
             self.toggle_button.setText("+")
             self.toggle_button.setToolTip("Expand properties panel")
         else:
-            self.scroll.setVisible(True)
-            self.save_button.setVisible(True)
-            self.title_label.setVisible(True)
             self.toggle_button.setText("−")
             self.toggle_button.setToolTip("Collapse properties panel")
-        self.collapse_toggled.emit(self.is_collapsed)
+        self.collapsed_changed.emit(self.is_collapsed)
 
     def load_item(self, item, db_manager: DatabaseManager, project_id: str):
         """Load an item's metadata"""
