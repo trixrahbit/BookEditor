@@ -3,8 +3,8 @@ Metadata panel for displaying and editing item properties
 """
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QScrollArea, QFormLayout,
-    QLineEdit, QTextEdit, QComboBox, QPushButton, QFrame
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QFormLayout,
+    QLineEdit, QTextEdit, QComboBox, QPushButton, QFrame, QToolButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -35,28 +35,37 @@ class MetadataPanel(QWidget):
         # Title
         title_widget = QWidget()
         title_widget.setObjectName("metadataTitle")
-        title_layout = QVBoxLayout(title_widget)
+        title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(15, 15, 15, 15)
 
         title_label = QLabel("Properties")
         title_label.setObjectName("titleLabel")
         title_layout.addWidget(title_label)
+        title_layout.addStretch()
+
+        self.toggle_button = QToolButton()
+        self.toggle_button.setObjectName("metadataToggle")
+        self.toggle_button.setText("−")
+        self.toggle_button.setToolTip("Collapse properties panel")
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.clicked.connect(self.toggle_collapsed)
+        title_layout.addWidget(self.toggle_button)
 
         layout.addWidget(title_widget)
 
         # Scrollable form area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setObjectName("metadataScroll")
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setObjectName("metadataScroll")
 
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
         self.form_layout.setSpacing(10)
         self.form_layout.setContentsMargins(15, 10, 15, 10)
 
-        scroll.setWidget(self.form_widget)
-        layout.addWidget(scroll)
+        self.scroll.setWidget(self.form_widget)
+        layout.addWidget(self.scroll)
 
         # Save button
         self.save_button = QPushButton("💾 Save Properties")
@@ -67,6 +76,19 @@ class MetadataPanel(QWidget):
 
         # Storage for form fields
         self.fields = {}
+        self.is_collapsed = False
+
+    def toggle_collapsed(self):
+        """Collapse or expand the metadata panel body."""
+        self.is_collapsed = not self.is_collapsed
+        self.scroll.setVisible(not self.is_collapsed)
+        self.save_button.setVisible(not self.is_collapsed)
+        if self.is_collapsed:
+            self.toggle_button.setText("+")
+            self.toggle_button.setToolTip("Expand properties panel")
+        else:
+            self.toggle_button.setText("−")
+            self.toggle_button.setToolTip("Collapse properties panel")
 
     def load_item(self, item, db_manager: DatabaseManager, project_id: str):
         """Load an item's metadata"""
@@ -209,6 +231,18 @@ class MetadataPanel(QWidget):
                 font-size: 14pt;
                 font-weight: bold;
                 color: #212529;
+            }
+
+            QToolButton#metadataToggle {
+                border: 1px solid #ced4da;
+                border-radius: 4px;
+                padding: 2px 6px;
+                background: white;
+                font-weight: bold;
+            }
+
+            QToolButton#metadataToggle:hover {
+                background: #f1f3f5;
             }
 
             QScrollArea#metadataScroll {
