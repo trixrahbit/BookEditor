@@ -181,6 +181,10 @@ class MainWindow(QMainWindow):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.addWidget(self.metadata_panel)
         right_layout.addWidget(self.chapter_insights)
+        self.right_panel = right_panel
+        self.metadata_panel.collapse_toggled.connect(
+            self._safe_slot(self.on_properties_panel_toggled)
+        )
 
         # Hide chapter insights initially
         self.chapter_insights.setVisible(False)
@@ -194,7 +198,7 @@ class MainWindow(QMainWindow):
         # Add widgets to splitter
         main_splitter.addWidget(self.project_tree)
         main_splitter.addWidget(self.editor)
-        main_splitter.addWidget(right_panel)
+        main_splitter.addWidget(self.right_panel)
 
         # Set initial splitter sizes - give more space to tree and metadata
         main_splitter.setSizes([320, 600, 320])
