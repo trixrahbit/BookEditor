@@ -117,17 +117,17 @@ class MetadataPanel(QWidget):
         self.clear_form()
 
         # Build form based on item type
-        if item.item_type == ItemType.SCENE:
+        if isinstance(item, Scene):
             self.build_scene_form(item)
-        elif item.item_type == ItemType.CHARACTER:
+        elif isinstance(item, Character):
             self.build_character_form(item)
-        elif item.item_type == ItemType.LOCATION:
+        elif isinstance(item, Location):
             self.build_location_form(item)
-        elif item.item_type == ItemType.PLOT_THREAD:
+        elif isinstance(item, PlotThread):
             self.build_plot_form(item)
-        elif item.item_type == ItemType.CHAPTER:
+        elif isinstance(item, Chapter):
             self.build_chapter_form(item)
-        elif item.item_type == ItemType.PART:
+        elif isinstance(item, Part):
             self.build_part_form(item)
 
         self.save_button.setEnabled(True)
@@ -184,10 +184,20 @@ class MetadataPanel(QWidget):
         self.add_text_field("Appearance", "appearance", character.appearance, multiline=True)
         self.add_text_field("Personality", "personality", character.personality, multiline=True)
         self.add_text_field("Motivation", "motivation", character.motivation, multiline=True)
-        self.add_text_field("Conflict", "conflict", character.conflict, multiline=True)
+        self.add_text_field("Internal Conflict", "internal_conflict", character.internal_conflict, multiline=True)
+        self.add_text_field("External Conflict", "external_conflict", character.external_conflict, multiline=True)
+        self.add_text_field("Secrets", "secrets", character.secrets, multiline=True)
         self.add_text_field("Character Arc", "arc", character.arc, multiline=True)
         self.add_text_field("Strengths", "strengths", character.strengths, multiline=True)
         self.add_text_field("Weaknesses", "weaknesses", character.weaknesses, multiline=True)
+
+        # Voice Section
+        self.add_text_field("Sentence Length", "sentence_length", character.sentence_length)
+        self.add_text_field("Vocabulary", "vocabulary", character.vocabulary)
+        self.add_text_field("Formality", "formality", character.formality)
+        self.add_text_field("Sarcasm/Tone", "sarcasm_tone", character.sarcasm_tone)
+        self.add_text_field("Last Seen", "last_seen", character.last_seen)
+
         self.add_text_field("Notes", "notes", character.notes, multiline=True)
 
     def build_location_form(self, location: Location):

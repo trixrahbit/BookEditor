@@ -11,9 +11,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QFont, QAction, QTextCharFormat, QColor, QTextListFormat, QTextCursor, QTextDocument
-from models.project import Scene, ItemType
+from models.project import Scene, ItemType, Character, Chapter, Part, Location, PlotThread
 from db_manager import DatabaseManager
 from live_text_check import LiveTextChecker, CheckResult, SpellIssue, GrammarIssue
+from character_voice_rewrite_dialog import CharacterVoiceRewriteDialog
 
 class EditorWidget(QWidget):
     content_changed = pyqtSignal()
@@ -297,7 +298,7 @@ class EditorWidget(QWidget):
         self.text_edit.blockSignals(True)
         self.text_edit.setExtraSelections([])
 
-        if item.item_type == ItemType.SCENE:
+        if isinstance(item, Scene):
             self.title_label.setText(item.name)
             self.text_edit.setAcceptRichText(True)
             self.text_edit.setHtml(item.content or "")
@@ -305,7 +306,7 @@ class EditorWidget(QWidget):
             self.set_enabled(True)
             self.auto_save_timer.start()
 
-        elif item.item_type == ItemType.CHAPTER:
+        elif isinstance(item, Chapter):
             self.title_label.setText(f"{item.name} (chapter view)")
             self.text_edit.setAcceptRichText(False)
 
@@ -343,7 +344,7 @@ class EditorWidget(QWidget):
         self.update_word_count()
 
         # ✅ Run checks immediately when a scene loads (not just after typing)
-        if self.live_checks_enabled and item.item_type == ItemType.SCENE:
+        if self.live_checks_enabled and isinstance(item, Scene):
             self.live_checker.schedule(self.text_edit.toPlainText())
         else:
             # Clear underlines in non-scene views
@@ -669,7 +670,7 @@ class EditorWidget(QWidget):
             spelling_menu = menu.addMenu("🧠 Spelling")
 
             # Suggestions (if we have any)
-            if spell_issue.suggestions:
+            if hasattr(spell_issue, 'suggestions') and spell_issue.suggestions:
                 for sug in spell_issue.suggestions[:8]:
                     act = spelling_menu.addAction(sug)
                     act.triggered.connect(lambda _, s=sug, i=spell_issue: self._replace_range(i.start, i.length, s))
@@ -691,12 +692,13 @@ class EditorWidget(QWidget):
             menu.addSeparator()
             grammar_menu = menu.addMenu("🧩 Grammar")
 
-            if grammar_issue.suggestions:
+            if hasattr(grammar_issue, 'suggestions') and grammar_issue.suggestions:
                 for sug in grammar_issue.suggestions[:8]:
                     act = grammar_menu.addAction(sug)
                     act.triggered.connect(lambda _, s=sug, i=grammar_issue: self._replace_range(i.start, i.length, s))
             else:
-                grammar_menu.addAction(grammar_issue.message).setEnabled(False)
+                msg = getattr(grammar_issue, 'message', "Grammar issue")
+                grammar_menu.addAction(msg).setEnabled(False)
 
         # -------------------------
         # Persona rewrite
@@ -708,6 +710,11 @@ class EditorWidget(QWidget):
             rewrite_selection_action = QAction("🎨 Rewrite Selection with Persona", self)
             rewrite_selection_action.triggered.connect(lambda: self.rewrite_selection_action_requested.emit())
             menu.addAction(rewrite_selection_action)
+
+            # Character voice rewrite
+            char_voice_action = QAction("🎭 Rewrite in Character Voice", self)
+            char_voice_action.triggered.connect(self.rewrite_selection_with_character_voice)
+            menu.addAction(char_voice_action)
 
         menu.exec(self.text_edit.viewport().mapToGlobal(position))
 
@@ -801,7 +808,7 @@ class EditorWidget(QWidget):
             return
 
         # Get selected text
-        cursor = self.editor.text_edit.textCursor()
+        cursor = self.text_edit.textCursor()
         selected_text = cursor.selectedText()
 
         if not selected_text:
@@ -821,6 +828,48 @@ class EditorWidget(QWidget):
             self.persona_manager,
             selected_text,
             scope="selection"
+        )
+
+        if dialog.exec():
+            # Apply rewritten text
+            rewritten = dialog.get_rewritten_text()
+            if rewritten:
+                cursor.insertText(rewritten)
+                QMessageBox.information(self, "Applied", "Rewrite applied successfully!")
+
+    def rewrite_selection_with_character_voice(self):
+        """Rewrite selected text in a specific character's voice"""
+        if not self.db_manager or not self.project_id:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        # Get selected text
+        cursor = self.text_edit.textCursor()
+        selected_text = cursor.selectedText()
+
+        if not selected_text:
+            QMessageBox.warning(self, "No Selection", "Please select text to rewrite")
+            return
+
+        # Convert Qt paragraph separator to newline
+        selected_text = selected_text.replace('\u2029', '\n')
+
+        # Load characters
+        from models.project import ItemType
+        characters = self.db_manager.load_items(self.project_id, ItemType.CHARACTER)
+
+        if not characters:
+            QMessageBox.warning(self, "No Characters", "No characters found in this project. Please create some first.")
+            return
+
+        # Open rewrite dialog
+        from ai_manager import ai_manager
+        
+        dialog = CharacterVoiceRewriteDialog(
+            self,
+            ai_manager,
+            characters,
+            selected_text
         )
 
         if dialog.exec():
@@ -923,15 +972,76 @@ class EditorWidget(QWidget):
         if self.live_checks_enabled:
             self.live_checker.schedule(self.text_edit.toPlainText())
 
+    def jump_to_anchor(self, anchor_id: str):
+        """Scroll to and highlight a specific paragraph anchor [P1], [P2], etc."""
+        if not anchor_id:
+            return
+            
+        print(f"[EditorWidget] Jumping to anchor: {anchor_id}")
+        
+        # Extract index from P1, P2...
+        try:
+            target_idx = int(re.search(r'P(\d+)', anchor_id).group(1))
+        except (AttributeError, ValueError):
+            print(f"[EditorWidget] Invalid anchor format: {anchor_id}")
+            return
+
+        text = self.text_edit.toPlainText()
+        # Paragraphs are typically separated by double newlines
+        parts = re.split(r'\n\s*\n', text)
+        
+        if 1 <= target_idx <= len(parts):
+            # Find the character position
+            pos = 0
+            for i in range(target_idx - 1):
+                match = re.search(r'\n\s*\n', text[pos:])
+                if match:
+                    pos += match.end()
+                else:
+                    break
+            
+            # Find end of paragraph
+            match_end = re.search(r'\n\s*\n', text[pos:])
+            if match_end:
+                end_pos = pos + match_end.start()
+            else:
+                end_pos = len(text)
+
+            # Move cursor and scroll
+            cursor = self.text_edit.textCursor()
+            cursor.setPosition(pos)
+            cursor.setPosition(end_pos, QTextCursor.MoveMode.KeepAnchor)
+            self.text_edit.setTextCursor(cursor)
+            self.text_edit.ensureCursorVisible()
+            
+            # Optional: temporary highlight
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor("#444400")) 
+            cursor.mergeCharFormat(fmt)
+            
+            # Clear highlight after 2 seconds
+            QTimer.singleShot(2000, lambda: self.clear_temp_highlight(pos, end_pos))
+
+    def clear_temp_highlight(self, start, end):
+        cursor = self.text_edit.textCursor()
+        cursor.setPosition(start)
+        cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+        fmt = QTextCharFormat()
+        fmt.setBackground(Qt.GlobalColor.transparent)
+        cursor.mergeCharFormat(fmt)
 
     def resizeEvent(self, event):
-        super().resizeEvent(event)
+        try:
+            super().resizeEvent(event)
 
-        # Heuristic thresholds — tweak these if you want
-        w = self.width()
+            # Heuristic thresholds — tweak these if you want
+            w = self.width()
 
-        # Compact when editor is narrow (usually because right panel is open)
-        # 850 is a safer threshold for the new set of icons
-        should_compact = w < 850
+            # Compact when editor is narrow (usually because right panel is open)
+            # 850 is a safer threshold for the new set of icons
+            should_compact = w < 850
 
-        self.set_toolbar_compact(should_compact)
+            if hasattr(self, 'set_toolbar_compact'):
+                self.set_toolbar_compact(should_compact)
+        except Exception as e:
+            print(f"Error in resizeEvent: {e}")

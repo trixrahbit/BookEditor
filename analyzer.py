@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from PyQt6.QtCore import QSettings
 import json
 from text_utils import format_scene_for_ai
-import ai_prompts as prompts
+from ai_prompts import AIPrompts as prompts
 
 try:
     from openai import AzureOpenAI, OpenAI
@@ -263,6 +263,10 @@ class AIAnalyzer:
             f"Role: {c.get('role', 'unknown')}\n"
             f"Description: {c.get('description', 'N/A')}\n"
             f"Motivation: {c.get('motivation', 'N/A')}\n"
+            f"Internal Conflict: {c.get('internal_conflict', 'N/A')}\n"
+            f"External Conflict: {c.get('external_conflict', 'N/A')}\n"
+            f"Secrets: {c.get('secrets', 'N/A')}\n"
+            f"Voice: {c.get('sentence_length', 'N/A')}, {c.get('vocabulary', 'N/A')}, {c.get('formality', 'N/A')}, {c.get('sarcasm_tone', 'N/A')}\n"
             for c in characters
         ])
 
@@ -272,6 +276,7 @@ class AIAnalyzer:
         ])
 
         return f"""Analyze the following novel's character development and consistency.
+Pay special attention to whether their dialogue and actions match their established Voice attributes, internal/external conflicts, and motivations.
 
 CHARACTERS:
 {character_info}
@@ -280,7 +285,7 @@ SCENE EXCERPTS:
 {scene_excerpts}
 
 Provide:
-1. Character consistency analysis
+1. Character consistency analysis (including dialogue voice match)
 2. Character development tracking
 3. Relationship dynamics
 4. Potential issues or inconsistencies
@@ -571,7 +576,6 @@ class AnalysisEngine:
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message=prompts.system_timeline(),
-            temperature=0.25,
             max_tokens=8000
         )
         issues = _safe_json_loads(resp) or []
@@ -584,7 +588,6 @@ class AnalysisEngine:
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message=prompts.system_consistency(),
-            temperature=0.25,
             max_tokens=8000
         )
         issues = _safe_json_loads(resp) or []
@@ -597,7 +600,6 @@ class AnalysisEngine:
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message=prompts.system_style(),
-            temperature=0.35,
             max_tokens=8000
         )
         issues = _safe_json_loads(resp) or []
@@ -610,11 +612,36 @@ class AnalysisEngine:
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message="You produce reader-clarity snapshots as strict JSON.",
-            temperature=0.2,
             max_tokens=4000
         )
         payload = _safe_json_loads(resp) or {}
         return {"type": "reader_snapshot", "payload": payload, "chapter": chapter.name}
+
+    def analyze_chapter_pacing(self, chapter: ChapterData, scene_max_chars: int = 12000) -> Dict[str, Any]:
+        blocks = self._chapter_scene_blocks(chapter, scene_max_chars)
+        prompt = prompts.chapter_pacing_prompt(chapter.name, blocks)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You are a story analyst specializing in pacing and tension. Output strict JSON only.",
+            max_tokens=4000
+        )
+        payload = _safe_json_loads(resp) or {}
+        return {"type": "pacing", "payload": payload, "chapter": chapter.name}
+
+    def analyze_chapter_world_rules(self, chapter: ChapterData, world_rules: List[Dict[str, Any]], scene_max_chars: int = 12000) -> Dict[str, Any]:
+        blocks = self._chapter_scene_blocks(chapter, scene_max_chars)
+        manuscript = "\n\n".join([b.get("text", "") for b in blocks])
+        prompt = prompts.world_rules_validation_prompt(world_rules, manuscript)
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message=prompts.system_world_rules(),
+            max_tokens=8000
+        )
+        violations = _safe_json_loads(resp) or []
+        # We can also attach scene IDs if we have location info in violations, 
+        # but the prompt doesn't strictly require 'location' yet. 
+        # Let's keep it simple for now as it checks the whole chapter.
+        return {"type": "world_rules", "violations": violations, "chapter": chapter.name}
 
     # --------- BOOK ANALYSIS ----------
 
@@ -624,51 +651,59 @@ class AnalysisEngine:
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message=prompts.system_story_bible(),
-            temperature=0.2,
             max_tokens=8000
         )
         bible = _safe_json_loads(resp) or {}
         return {"type": "story_bible", "payload": bible}
 
-    def analyze_book_threads(self, compiled_text: str) -> Dict[str, Any]:
-        prompt = prompts.book_threads_prompt({"compiled_text": compiled_text})
+    def analyze_book_threads(self, compiled_text: str, existing_threads: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = {"compiled_text": compiled_text, "existing_threads": existing_threads or {}}
+        prompt = prompts.book_threads_prompt(ctx)
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message="You track story threads and output strict JSON only.",
-            temperature=0.25,
             max_tokens=8000
         )
         return {"type": "threads", "payload": _safe_json_loads(resp) or {}}
 
-    def analyze_book_promise_payoff(self, compiled_text: str) -> Dict[str, Any]:
-        prompt = prompts.book_promise_payoff_prompt({"compiled_text": compiled_text})
+    def analyze_book_promise_payoff(self, compiled_text: str, existing_promises: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = {"compiled_text": compiled_text, "existing_promises": existing_promises or {}}
+        prompt = prompts.book_promise_payoff_prompt(ctx)
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message="You audit promise-payoff. Output strict JSON only.",
-            temperature=0.25,
             max_tokens=8000
         )
         return {"type": "promise_payoff", "payload": _safe_json_loads(resp) or {}}
 
-    def analyze_book_voice_drift(self, compiled_text: str) -> Dict[str, Any]:
-        prompt = prompts.book_voice_drift_prompt({"compiled_text": compiled_text})
+    def analyze_book_voice_drift(self, compiled_text: str, existing_voice: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = {"compiled_text": compiled_text, "existing_voice": existing_voice or {}}
+        prompt = prompts.book_voice_drift_prompt(ctx)
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message="You analyze voice/tone/pacing drift and output strict JSON only.",
-            temperature=0.25,
             max_tokens=6000
         )
         return {"type": "voice_drift", "payload": _safe_json_loads(resp) or {}}
 
-    def analyze_book_reader_sim(self, compiled_text: str) -> Dict[str, Any]:
-        prompt = prompts.book_reader_sim_prompt({"compiled_text": compiled_text})
+    def analyze_book_reader_sim(self, compiled_text: str, existing_sim: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        ctx = {"compiled_text": compiled_text, "existing_sim": existing_sim or {}}
+        prompt = prompts.book_reader_sim_prompt(ctx)
         resp = self.ai_manager.call_api(
             messages=[{"role": "user", "content": prompt}],
             system_message=prompts.system_reader_sim(),
-            temperature=0.35,
             max_tokens=6000
         )
         return {"type": "reader_sim", "payload": _safe_json_loads(resp) or {}}
+
+    def analyze_book_pacing(self, compiled_text: str) -> Dict[str, Any]:
+        prompt = prompts.book_pacing_prompt({"compiled_text": compiled_text})
+        resp = self.ai_manager.call_api(
+            messages=[{"role": "user", "content": prompt}],
+            system_message="You are a story analyst specializing in pacing and tension. Output strict JSON only.",
+            max_tokens=8000
+        )
+        return {"type": "pacing", "payload": _safe_json_loads(resp) or {}}
 
     # --------- helpers ----------
 

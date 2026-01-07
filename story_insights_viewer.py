@@ -13,8 +13,9 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QFont, QTextDocument
 from ai_manager import ai_manager
-from typing import Dict
+from typing import Dict, List
 import html as _html
+from pacing_heatmap import PacingHeatmapWidget
 
 
 class CollapsibleSection(QWidget):
@@ -36,14 +37,14 @@ class CollapsibleSection(QWidget):
                 border: none;
                 font-size: 12pt;
                 font-weight: bold;
-                color: #495057;
+                color: #E0E0E0;
                 padding: 10px;
-                background: #e9ecef;
+                background: #2D2D2D;
                 border-radius: 4px;
                 text-align: left;
             }
             QToolButton:hover {
-                background: #dee2e6;
+                background: #3D3D3D;
             }
         """)
         self.toggle_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -230,15 +231,15 @@ class IssueCard(QFrame):
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setStyleSheet("""
             QFrame {
-                background: white;
-                border: 1px solid #dee2e6;
+                background: #252526;
+                border: 1px solid #3D3D3D;
                 border-radius: 8px;
                 padding: 15px;
                 margin: 5px;
             }
             QFrame:hover {
-                border-color: #667eea;
-                background: #f8f9fa;
+                border-color: #7C4DFF;
+                background: #2D2D30;
             }
         """)
 
@@ -286,7 +287,7 @@ class IssueCard(QFrame):
                 self.fix_btn.hide()
 
         location_label = QLabel(f"📍 {self.issue_data.get('location', 'Unknown')}")
-        location_label.setStyleSheet("color: #6c757d; font-size: 10pt; margin-left: 10px;")
+        location_label.setStyleSheet("color: #A0A0A0; font-size: 10pt; margin-left: 10px;")
         header.addWidget(location_label)
 
         layout.addLayout(header)
@@ -294,12 +295,12 @@ class IssueCard(QFrame):
         # Issue title
         title = QLabel(self.issue_data.get('issue', 'No description'))
         title.setWordWrap(True)
-        title.setStyleSheet("font-size: 12pt; font-weight: bold; color: #212529; margin: 8px 0;")
+        title.setStyleSheet("font-size: 12pt; font-weight: bold; color: #E0E0E0; margin: 8px 0;")
         layout.addWidget(title)
 
         # Chapter info
         chapter = QLabel(f"Chapter: {self.issue_data.get('chapter', 'Unknown')}")
-        chapter.setStyleSheet("color: #495057; font-size: 10pt; margin-bottom: 8px;")
+        chapter.setStyleSheet("color: #A0A0A0; font-size: 10pt; margin-bottom: 8px;")
         layout.addWidget(chapter)
 
         # Collapsible details
@@ -322,11 +323,11 @@ class IssueCard(QFrame):
             self.toggle_btn.setStyleSheet("""
                 QToolButton {
                     border: none;
-                    color: #667eea;
+                    color: #7C4DFF;
                     font-weight: bold;
                     padding: 4px 0;
                 }
-                QToolButton:hover { color: #4c63d2; }
+                QToolButton:hover { color: #9E7BFF; }
             """)
             self.toggle_btn.toggled.connect(self._toggle_details)
             layout.addWidget(self.toggle_btn)
@@ -339,7 +340,7 @@ class IssueCard(QFrame):
             if detail_text:
                 detail = QLabel(detail_text)
                 detail.setWordWrap(True)
-                detail.setStyleSheet("color: #6c757d; font-size: 10pt;")
+                detail.setStyleSheet("color: #A0A0A0; font-size: 10pt;")
                 details_layout.addWidget(detail)
 
             if suggestions:
@@ -350,12 +351,12 @@ class IssueCard(QFrame):
 
                 if sug_text:
                     sug_label = QLabel("💡 Suggestions")
-                    sug_label.setStyleSheet("color: #495057; font-weight: bold; margin-top: 4px;")
+                    sug_label.setStyleSheet("color: #E0E0E0; font-weight: bold; margin-top: 4px;")
                     details_layout.addWidget(sug_label)
 
                     sug_body = QLabel(sug_text)
                     sug_body.setWordWrap(True)
-                    sug_body.setStyleSheet("color: #6c757d; font-size: 10pt;")
+                    sug_body.setStyleSheet("color: #A0A0A0; font-size: 10pt;")
                     details_layout.addWidget(sug_body)
 
             self.details_container.setVisible(False)
@@ -364,7 +365,7 @@ class IssueCard(QFrame):
             if detail_text:
                 detail = QLabel(detail_text)
                 detail.setWordWrap(True)
-                detail.setStyleSheet("color: #6c757d; font-size: 10pt;")
+                detail.setStyleSheet("color: #A0A0A0; font-size: 10pt;")
                 layout.addWidget(detail)
 
     def _norm_scene_key(s: str) -> str:
@@ -819,6 +820,8 @@ class IssueCard(QFrame):
 
 class StoryInsightsViewer(QDialog):
     """Main dialog for viewing all story insights"""
+    rerun_pacing_requested = pyqtSignal()
+    jump_requested = pyqtSignal(dict)
 
     def __init__(self, parent=None, db_manager=None, project_id=None):
         super().__init__(parent)
@@ -827,11 +830,12 @@ class StoryInsightsViewer(QDialog):
         self.timeline_data = None
         self.consistency_data = None
         self.style_data = None
+        self.pacing_data = None
         self.init_ui()
 
     def init_ui(self):
         self.setWindowTitle("Story Insights")
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(1000, 800)
 
         layout = QVBoxLayout(self)
 
@@ -842,6 +846,10 @@ class StoryInsightsViewer(QDialog):
 
         # Tabs for different analysis types
         self.tabs = QTabWidget()
+
+        # Pacing Heatmap tab
+        self.pacing_tab = self.create_pacing_tab()
+        self.tabs.addTab(self.pacing_tab, "📉 Pacing Heatmap")
 
         # Timeline tab
         self.timeline_tab = self.create_issues_tab()
@@ -950,7 +958,7 @@ class StoryInsightsViewer(QDialog):
         # Scroll area for issues
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: #f8f9fa; }")
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
@@ -965,6 +973,35 @@ class StoryInsightsViewer(QDialog):
 
         return widget
 
+    def create_pacing_tab(self) -> QWidget:
+        """Create tab for pacing heatmap"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        # Pacing heatmap
+        self.heatmap = PacingHeatmapWidget()
+        self.heatmap.scene_selected.connect(self._on_pacing_scene_selected)
+        layout.addWidget(self.heatmap)
+        
+        # Legend or info
+        info_layout = QHBoxLayout()
+        info = QLabel("The heatmap shows intensity (🔵 calm → 🔴 intense). "
+                      "The dashed line shows the tension curve. "
+                      "The bottom bar shows dialogue (gold) vs exposition (grey).")
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #A0A0A0; padding: 10px;")
+        info_layout.addWidget(info, 1)
+        
+        # Re-run button
+        rerun_btn = QPushButton("🔄 Re-Run Pace Analysis")
+        rerun_btn.clicked.connect(self.rerun_pacing_requested.emit)
+        info_layout.addWidget(rerun_btn)
+        
+        layout.addLayout(info_layout)
+        
+        layout.addStretch()
+        return widget
+
     def create_reports_tab(self) -> QWidget:
         """Create tab for full text reports"""
         widget = QWidget()
@@ -972,16 +1009,7 @@ class StoryInsightsViewer(QDialog):
 
         self.reports_text = QTextEdit()
         self.reports_text.setReadOnly(True)
-        self.reports_text.setStyleSheet("""
-            QTextEdit {
-                background: white;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 15px;
-                font-family: 'Courier New', monospace;
-                font-size: 10pt;
-            }
-        """)
+        # Inherits the modern style from apply_modern_style
         layout.addWidget(self.reports_text)
 
         return widget
@@ -1002,6 +1030,14 @@ class StoryInsightsViewer(QDialog):
         """Load style analysis data"""
         self.style_data = data
         self._populate_issues_tab(self.style_tab, data.get('issues', []))
+        self._update_reports()
+
+    def load_pacing_data(self, data: dict):
+        """Load pacing analysis data"""
+        self.pacing_data = data
+        payload = data.get('payload', {})
+        pacing_list = payload.get('pacing_data', [])
+        self.heatmap.set_data(pacing_list)
         self._update_reports()
 
     def _populate_issues_tab(self, tab: QWidget, issues: list):
@@ -1046,6 +1082,37 @@ class StoryInsightsViewer(QDialog):
                         section.add_widget(card)
 
         layout.addStretch()
+
+    def _on_pacing_scene_selected(self, scene_name: str):
+        """Handle scene selection from pacing heatmap"""
+        if not scene_name:
+            return
+            
+        # Try to find the scene_id in any of the analysis data
+        scene_id = None
+        
+        # Check timeline issues
+        if self.timeline_data:
+            for issue in self.timeline_data.get('issues', []):
+                if issue.get('location') == scene_name:
+                    scene_id = issue.get('scene_id')
+                    break
+                    
+        # If not found, check consistency issues
+        if not scene_id and self.consistency_data:
+            for issue in self.consistency_data.get('issues', []):
+                if issue.get('location') == scene_name:
+                    scene_id = issue.get('scene_id')
+                    break
+        
+        # If still not found, we just have the name. 
+        # The main window on_insight_jump_requested usually expects a dict with scene_id
+        if scene_id:
+            self.jump_requested.emit({"scene_id": scene_id})
+        else:
+            # Fallback: some systems might handle just the name or we need to look it up in DB
+            # For now, emit what we have
+            self.jump_requested.emit({"scene_name": scene_name})
 
     def _update_reports(self):
         """Update the full reports tab"""

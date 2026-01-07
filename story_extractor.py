@@ -2,12 +2,81 @@
 Story Extraction and Analysis - Auto-populate characters, locations, and plot from text
 """
 
-from PyQt6.QtWidgets import QMessageBox, QProgressDialog
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import (
+    QMessageBox, QProgressDialog, QDialog, QVBoxLayout, 
+    QScrollArea, QWidget, QCheckBox, QPushButton, QHBoxLayout, QLabel
+)
+from PyQt6.QtCore import QThread, pyqtSignal, Qt
 from ai_manager import ai_manager
 from typing import List, Dict, Any
 import re
 
+class SelectionDialog(QDialog):
+    """Dialog with checkboxes to select items for import"""
+    def __init__(self, items: List[Dict], title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(400, 500)
+        self.selected_items = []
+        
+        layout = QVBoxLayout(self)
+        
+        layout.addWidget(QLabel("Select items to import into your project:"))
+        
+        # Scroll area for items
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        self.content_layout = QVBoxLayout(content)
+        
+        self.checkboxes = []
+        for item in items:
+            cb = QCheckBox(f"{item['display_name']}")
+            cb.setToolTip(item.get('description', ''))
+            cb.setChecked(True)
+            cb.setProperty("item_data", item['original_data'])
+            cb.setProperty("item_id", item['id'])
+            self.content_layout.addWidget(cb)
+            self.checkboxes.append(cb)
+            
+        self.content_layout.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        select_all_btn = QPushButton("Select All")
+        select_none_btn = QPushButton("Select None")
+        ok_btn = QPushButton("Import Selected")
+        cancel_btn = QPushButton("Cancel")
+        
+        select_all_btn.clicked.connect(self.select_all)
+        select_none_btn.clicked.connect(self.select_none)
+        ok_btn.clicked.connect(self.accept)
+        cancel_btn.clicked.connect(self.reject)
+        
+        btn_layout.addWidget(select_all_btn)
+        btn_layout.addWidget(select_none_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+    def select_all(self):
+        for cb in self.checkboxes:
+            cb.setChecked(True)
+
+    def select_none(self):
+        for cb in self.checkboxes:
+            cb.setChecked(False)
+
+    def get_selected(self) -> Dict:
+        selected = {}
+        for cb in self.checkboxes:
+            if cb.isChecked():
+                item_id = cb.property("item_id")
+                selected[item_id] = cb.property("item_data")
+        return selected
 
 class ExtractionWorker(QThread):
     """Worker thread for extracting story elements"""
@@ -458,25 +527,24 @@ class StoryExtractor:
                 QMessageBox.information(self.parent, "No Characters", "No characters were found.")
                 return
 
-            # Show results and ask to save
-            char_list = "\n".join([
-                f"• {name} ({data['significance']}) - appears in {data['mentions']} chapter(s)"
-                for name, data in sorted(characters.items(), key=lambda x: -x[1]['mentions'])
-            ])
+            # Prepare items for selection dialog
+            items = []
+            for name, char_data in sorted(characters.items(), key=lambda x: -x[1]['mentions']):
+                items.append({
+                    'id': name,
+                    'display_name': f"{name} ({char_data['significance']}) - {char_data['mentions']} chapters",
+                    'description': char_data.get('role', ''),
+                    'original_data': char_data
+                })
 
-            msg = QMessageBox.question(
-                self.parent,
-                "Characters Found",
-                f"Found {len(characters)} characters:\n\n{char_list[:500]}\n\n"
-                f"Add these to your project?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-
-            if msg == QMessageBox.StandardButton.Yes:
-                # Clear existing characters first
-                self._clear_existing_items('character')
-                # Save new characters
-                self._save_characters(characters)
+            dialog = SelectionDialog(items, "Select Characters to Import", self.parent)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_characters = dialog.get_selected()
+                if selected_characters:
+                    # Clear existing characters first
+                    self._clear_existing_items('character')
+                    # Save new characters
+                    self._save_characters(selected_characters)
 
         def on_error(error):
             progress.close()
@@ -519,24 +587,24 @@ class StoryExtractor:
                 QMessageBox.information(self.parent, "No Locations", "No locations were found.")
                 return
 
-            loc_list = "\n".join([
-                f"• {name} ({data['type']}) - appears in {data['appearances']} chapter(s)"
-                for name, data in sorted(locations.items(), key=lambda x: -x[1]['appearances'])
-            ])
+            # Prepare items for selection dialog
+            items = []
+            for name, loc_data in sorted(locations.items(), key=lambda x: -x[1]['appearances']):
+                items.append({
+                    'id': name,
+                    'display_name': f"{name} ({loc_data['type']}) - {loc_data['appearances']} chapters",
+                    'description': loc_data.get('description', ''),
+                    'original_data': loc_data
+                })
 
-            msg = QMessageBox.question(
-                self.parent,
-                "Locations Found",
-                f"Found {len(locations)} locations:\n\n{loc_list[:500]}\n\n"
-                f"Add these to your project?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-            )
-
-            if msg == QMessageBox.StandardButton.Yes:
-                # Clear existing locations first
-                self._clear_existing_items('location')
-                # Save new locations
-                self._save_locations(locations)
+            dialog = SelectionDialog(items, "Select Locations to Import", self.parent)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                selected_locations = dialog.get_selected()
+                if selected_locations:
+                    # Clear existing locations first
+                    self._clear_existing_items('location')
+                    # Save new locations
+                    self._save_locations(selected_locations)
 
         def on_error(error):
             progress.close()
@@ -596,24 +664,24 @@ class StoryExtractor:
 
             # Ask to save plot threads
             if plot_threads:
-                thread_list = "\n".join([
-                    f"• {name} - appears in {len(data['chapters'])} chapter(s)"
-                    for name, data in sorted(plot_threads.items(), key=lambda x: -len(x[1]['chapters']))
-                ])
+                # Prepare items for selection dialog
+                items = []
+                for name, thread_data in sorted(plot_threads.items(), key=lambda x: -len(x[1]['chapters'])):
+                    items.append({
+                        'id': name,
+                        'display_name': f"{name} - {len(thread_data['chapters'])} chapters",
+                        'description': thread_data.get('description', ''),
+                        'original_data': thread_data
+                    })
 
-                save_msg = QMessageBox.question(
-                    self.parent,
-                    "Plot Threads Found",
-                    f"Found {len(plot_threads)} plot threads:\n\n{thread_list[:500]}\n\n"
-                    f"Add these to your project?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-                )
-
-                if save_msg == QMessageBox.StandardButton.Yes:
-                    # Clear existing plot threads first
-                    self._clear_existing_items('plot_thread')
-                    # Save new plot threads
-                    self._save_plot_threads(plot_threads)
+                dialog = SelectionDialog(items, "Select Plot Threads to Import", self.parent)
+                if dialog.exec() == QDialog.DialogCode.Accepted:
+                    selected_threads = dialog.get_selected()
+                    if selected_threads:
+                        # Clear existing plot threads first
+                        self._clear_existing_items('plot_thread')
+                        # Save new plot threads
+                        self._save_plot_threads(selected_threads)
 
         def on_error(error):
             progress.close()

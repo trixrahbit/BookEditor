@@ -14,6 +14,7 @@ class ItemType(Enum):
     LOCATION = "location"
     PLOT_THREAD = "plot_thread"
     NOTE = "note"
+    WORLD_RULE = "world_rule"
 
 
 @dataclass
@@ -128,6 +129,16 @@ class Character(ProjectItem):
     personality: str = ""
     strengths: str = ""
     weaknesses: str = ""
+    # Voice attributes
+    sentence_length: str = ""
+    vocabulary: str = ""
+    formality: str = ""
+    sarcasm_tone: str = ""
+    # Dynamic tracking
+    internal_conflict: str = ""
+    external_conflict: str = ""
+    secrets: str = ""
+    last_seen: str = ""  # Track when they last appeared
     # Relationships
     relationships: Dict[str, str] = field(default_factory=dict)
 
@@ -148,6 +159,14 @@ class Character(ProjectItem):
             'personality': self.personality,
             'strengths': self.strengths,
             'weaknesses': self.weaknesses,
+            'sentence_length': self.sentence_length,
+            'vocabulary': self.vocabulary,
+            'formality': self.formality,
+            'sarcasm_tone': self.sarcasm_tone,
+            'internal_conflict': self.internal_conflict,
+            'external_conflict': self.external_conflict,
+            'secrets': self.secrets,
+            'last_seen': self.last_seen,
             'relationships': self.relationships
         })
         return base
@@ -196,6 +215,28 @@ class PlotThread(ProjectItem):
 
 
 @dataclass
+class WorldRule(ProjectItem):
+    """A law of the universe, magic system, or cultural rule"""
+    rule_category: str = "Magic"  # Magic, Tech, Culture, Physics, Reality, Other
+    description: str = ""
+    consequences: str = ""  # What happens if broken or used
+    is_active: bool = True
+
+    def __post_init__(self):
+        self.item_type = ItemType.WORLD_RULE
+
+    def to_dict(self) -> Dict[str, Any]:
+        base = super().to_dict()
+        base.update({
+            'rule_category': self.rule_category,
+            'description': self.description,
+            'consequences': self.consequences,
+            'is_active': self.is_active
+        })
+        return base
+
+
+@dataclass
 class Project:
     """The novel project container"""
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -206,6 +247,7 @@ class Project:
     description: str = ""
     created: datetime = field(default_factory=datetime.now)
     modified: datetime = field(default_factory=datetime.now)
+    world_rules: List[WorldRule] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -216,11 +258,16 @@ class Project:
             'target_word_count': self.target_word_count,
             'description': self.description,
             'created': self.created.isoformat(),
-            'modified': self.modified.isoformat()
+            'modified': self.modified.isoformat(),
+            'world_rules': [r.to_dict() for r in self.world_rules]
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Project':
         data['created'] = datetime.fromisoformat(data['created'])
         data['modified'] = datetime.fromisoformat(data['modified'])
-        return cls(**data)
+        
+        rules_data = data.pop('world_rules', [])
+        project = cls(**data)
+        project.world_rules = [WorldRule.from_dict(r) if isinstance(r, dict) else r for r in rules_data]
+        return project

@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from models.project import (
-    Project, Scene, Chapter, Part, Character, Location, PlotThread,
+    Project, Scene, Chapter, Part, Character, Location, PlotThread, WorldRule,
     ProjectItem, ItemType
 )
 
@@ -126,7 +126,11 @@ class DatabaseManager:
             with self._lock:
                 cursor = self.conn.cursor()
                 project_dict = project.to_dict()
-
+                
+                # We need to handle world_rules separately if we want them in their own table,
+                # but for now, the 'projects' table doesn't have a 'world_rules' or 'data' column.
+                # Let's see if we should add it or just use the 'items' table for WorldRule items.
+                
                 cursor.execute('''
                     INSERT OR REPLACE INTO projects 
                     (id, name, author, genre, target_word_count, description, created, modified)
@@ -143,6 +147,11 @@ class DatabaseManager:
                 ))
 
                 self.conn.commit()
+                
+                # Save world rules as individual items
+                for rule in project.world_rules:
+                    self.save_item(project.id, rule)
+                    
             return True
         except Exception as e:
             print(f"Error saving project: {e}")
@@ -156,7 +165,11 @@ class DatabaseManager:
             row = cursor.fetchone()
 
         if row:
-            return Project.from_dict(dict(row))
+            project = Project.from_dict(dict(row))
+            # Load world rules
+            rules = self.load_items(project_id, ItemType.WORLD_RULE)
+            project.world_rules = [r for r in rules if isinstance(r, WorldRule)]
+            return project
         return None
 
     def list_projects(self) -> List[Project]:
@@ -316,6 +329,8 @@ class DatabaseManager:
             return Location.from_dict(full_data)
         elif item_type == ItemType.PLOT_THREAD:
             return PlotThread.from_dict(full_data)
+        elif item_type == ItemType.WORLD_RULE:
+            return WorldRule.from_dict(full_data)
         else:
             return ProjectItem.from_dict(full_data)
 

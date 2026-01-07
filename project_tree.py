@@ -3,7 +3,8 @@ Project tree widget for navigating the novel structure
 """
 
 from PyQt6.QtWidgets import (
-    QTreeWidget, QTreeWidgetItem, QMenu, QInputDialog, QMessageBox
+    QTreeWidget, QTreeWidgetItem, QMenu, QMessageBox, QInputDialog,
+    QTreeWidgetItemIterator
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QAction, QIcon
@@ -216,13 +217,13 @@ class ProjectTreeWidget(QTreeWidget):
 
             if db_item:
                 # AI features for scenes
-                if db_item.item_type == ItemType.SCENE:
+                if isinstance(db_item, Scene):
                     ai_fill_action = QAction("🤖 AI: Auto-fill Scene Properties", self)
                     ai_fill_action.triggered.connect(lambda: self.ai_fill_requested.emit(item_id))
                     menu.addAction(ai_fill_action)
                     menu.addSeparator()
                 # AI features for chapters
-                if db_item.item_type == ItemType.CHAPTER:
+                if isinstance(db_item, Chapter):
                     new_scene_action = QAction("➕ New Scene in this Chapter", self)
                     new_scene_action.triggered.connect(lambda: self.add_scene_to_chapter(item_id))
                     menu.addAction(new_scene_action)
@@ -361,7 +362,7 @@ class ProjectTreeWidget(QTreeWidget):
 
         # Confirm the parent really is a chapter
         parent = self.db_manager.load_item(chapter_id)
-        if not parent or parent.item_type != ItemType.CHAPTER:
+        if not parent or not isinstance(parent, Chapter):
             QMessageBox.warning(self, "Invalid Parent", "Selected item is not a chapter.")
             return
 
@@ -385,3 +386,37 @@ class ProjectTreeWidget(QTreeWidget):
 
         self.db_manager.save_item(self.project_id, scene)
         self.load_project(self.db_manager, self.project_id)
+
+    def select_item_by_id(self, item_id: str):
+        """Find and select an item by its ID in the tree"""
+        it = QTreeWidgetItemIterator(self)
+        while it.value():
+            item = it.value()
+            if item.data(0, Qt.ItemDataRole.UserRole) == item_id:
+                self.setCurrentItem(item)
+                # Expand all parents
+                parent = item.parent()
+                while parent:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                # Emit clicked signal to trigger loading
+                self.itemClicked.emit(item, 0)
+                break
+            it += 1
+
+    def select_item_by_name(self, name: str):
+        """Find and select an item by its name in the tree"""
+        it = QTreeWidgetItemIterator(self)
+        while it.value():
+            item = it.value()
+            if item.text(0) == name:
+                self.setCurrentItem(item)
+                # Expand all parents
+                parent = item.parent()
+                while parent:
+                    parent.setExpanded(True)
+                    parent = parent.parent()
+                # Emit clicked signal to trigger loading
+                self.itemClicked.emit(item, 0)
+                break
+            it += 1

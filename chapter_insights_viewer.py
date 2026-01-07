@@ -61,6 +61,7 @@ class InsightIssueCard(QFrame):
     """Compact issue card for chapter view"""
 
     fix_requested = pyqtSignal(dict)  # issue_data
+    jump_requested = pyqtSignal(dict) # issue_data
 
     def __init__(self, issue: Dict[str, Any]):
         super().__init__()
@@ -84,8 +85,12 @@ class InsightIssueCard(QFrame):
             }
         """)
 
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)
+        layout.setSpacing(6)
+
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(0, 0, 0, 0)
 
         # Severity badge
         severity = self.issue.get('severity', 'Minor')
@@ -93,48 +98,75 @@ class InsightIssueCard(QFrame):
         badge.setStyleSheet(self._get_severity_style(severity))
         badge.setFixedWidth(70)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(badge)
+        header_layout.addWidget(badge)
+
+        # Scene location hint
+        loc = self.issue.get('location', '')
+        if loc:
+            loc_label = QLabel(f"📍 {loc}")
+            loc_label.setStyleSheet("color: #888; font-size: 8pt;")
+            header_layout.addWidget(loc_label)
+
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
 
         # Issue text
         issue_text = self.issue.get('issue', 'No description')
         label = QLabel(issue_text)
         label.setWordWrap(True)
-        label.setStyleSheet("font-size: 9pt; color: #E0E0E0;")
-        layout.addWidget(label, stretch=1)
+        label.setStyleSheet("font-size: 9pt; color: #E0E0E0; font-weight: bold;")
+        layout.addWidget(label)
+
+        # Detail text (optional)
+        detail = self.issue.get('detail', '')
+        if detail:
+            detail_label = QLabel(detail)
+            detail_label.setWordWrap(True)
+            detail_label.setStyleSheet("font-size: 8pt; color: #A0A0A0;")
+            layout.addWidget(detail_label)
+
+        # Buttons layout
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(5)
+
+        # Jump button
+        self.jump_btn = QPushButton("👁️ Jump to Scene")
+        self.jump_btn.setFixedHeight(24)
+        self.jump_btn.setStyleSheet("""
+            QPushButton {
+                background: #3E3E42;
+                color: #E0E0E0;
+                border: none;
+                border-radius: 4px;
+                font-size: 8pt;
+                padding: 0 8px;
+            }
+            QPushButton:hover { background: #4E4E52; }
+        """)
+        self.jump_btn.clicked.connect(lambda: self.jump_requested.emit(self.issue))
+        btn_layout.addWidget(self.jump_btn)
 
         # Fix button
         if self.issue.get('scene_id') and severity != "Strength":
-            self.fix_btn = QToolButton()
-            self.fix_btn.setIcon(QIcon.fromTheme("system-run")) # Fallback
-            # Use a more specific icon if possible, but emojis or custom paths are often used in such projects
-            # Since I don't see icon files, I'll use a better styled button with text or a standard icon
-            self.fix_btn.setText("Fix")
-            self.fix_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-            
-            # Try to set a spark icon if available, or stick to a better emoji if themed icons aren't available
-            # Many PyQt6 apps use emojis as icons if they don't have an asset pipeline
-            self.fix_btn.setText("✨ AI Fix")
-            
-            self.fix_btn.setFixedSize(70, 28)
+            self.fix_btn = QPushButton("✨ AI Fix")
+            self.fix_btn.setFixedHeight(24)
             self.fix_btn.setStyleSheet("""
-                QToolButton {
+                QPushButton {
                     background: #7C4DFF;
                     color: white;
                     border: none;
                     border-radius: 4px;
                     font-weight: bold;
                     font-size: 8pt;
+                    padding: 0 8px;
                 }
-                QToolButton:hover { 
-                    background: #9E7CFF; 
-                }
-                QToolButton:pressed {
-                    background: #6200EA;
-                }
+                QPushButton:hover { background: #9E7CFF; }
             """)
-            self.fix_btn.setToolTip("Use AI to fix this issue")
             self.fix_btn.clicked.connect(lambda: self.fix_requested.emit(self.issue))
-            layout.addWidget(self.fix_btn)
+            btn_layout.addWidget(self.fix_btn)
+
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
 
     def _get_severity_style(self, severity: str) -> str:
         styles = {
@@ -151,6 +183,7 @@ class ChapterInsightsViewer(QWidget):
 
     analyze_requested = pyqtSignal(str)  # chapter_id
     fix_requested = pyqtSignal(dict, str)  # issue_data, chapter_id
+    jump_requested = pyqtSignal(dict) # issue_data
 
     def __init__(self):
         super().__init__()
@@ -262,6 +295,10 @@ class ChapterInsightsViewer(QWidget):
         # Consistency tab
         self.consistency_widget = self._create_issues_widget()
         self.tabs.addTab(self.consistency_widget, "🔍 Consistency")
+
+        # World Rules tab
+        self.world_rules_widget = self._create_issues_widget()
+        self.tabs.addTab(self.world_rules_widget, "🌌 World Rules")
 
         # Style tab
         self.style_widget = self._create_issues_widget()
@@ -393,6 +430,10 @@ class ChapterInsightsViewer(QWidget):
             reader = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'reader_snapshot')
             print(f"    reader={reader is not None}")
 
+            print("  Loading world rules...")
+            world_rules = db.get_latest(self.project_id, 'chapter', self.chapter_id, 'world_rules')
+            print(f"    world_rules={world_rules is not None}")
+
         except Exception as e:
             print(f"[ChapterInsights] ERROR in _load_insights: {e}")
             import traceback
@@ -422,6 +463,12 @@ class ChapterInsightsViewer(QWidget):
             self._populate_issues(self.consistency_widget, issues)
         else:
             self._show_empty(self.consistency_widget)
+
+        if world_rules:
+            issues = world_rules.payload.get('issues', [])
+            self._populate_issues(self.world_rules_widget, issues)
+        else:
+            self._show_empty(self.world_rules_widget)
 
         if style:
             issues = style.payload.get('issues', [])
@@ -466,6 +513,7 @@ class ChapterInsightsViewer(QWidget):
                 for issue in issue_list:
                     card = InsightIssueCard(issue)
                     card.fix_requested.connect(lambda i: self.fix_requested.emit(i, self.chapter_id))
+                    card.jump_requested.connect(self.jump_requested.emit)
                     section.add_widget(card)
 
         layout.addStretch()

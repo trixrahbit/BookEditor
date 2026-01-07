@@ -31,6 +31,8 @@ class ComprehensiveAnalysisWorker(QThread):
                 result = self._analyze_consistency_comprehensive()
             elif self.analysis_type == "style":
                 result = self._analyze_style_comprehensive()
+            elif self.analysis_type == "pacing":
+                result = self._analyze_pacing_comprehensive()
             else:
                 result = {}
 
@@ -39,6 +41,51 @@ class ComprehensiveAnalysisWorker(QThread):
             import traceback
             traceback.print_exc()
             self.error.emit(str(e))
+
+    def _analyze_pacing_comprehensive(self):
+        """Analyze book pacing and tension chapter by chapter"""
+        from analyzer import AnalysisEngine, ChapterData
+        from ai_manager import ai_manager
+        
+        engine = AnalysisEngine(ai_manager)
+        all_pacing_data = []
+        total_chapters = len(self.chapters)
+        
+        for idx, chapter in enumerate(self.chapters):
+            chapter_name = chapter.get('name', f'Chapter {idx+1}')
+            self.progress.emit(f"Analyzing pacing in {chapter_name}...", int((idx / total_chapters) * 90))
+            
+            # Get scenes for this chapter
+            chapter_scenes = [s for s in self.scenes if s.get('parent_id') == chapter.get('id')]
+            if not chapter_scenes:
+                continue
+                
+            # Create ChapterData for engine
+            # We need to format scenes as expected by AnalysisEngine
+            cd = ChapterData(
+                id=chapter.get('id'),
+                name=chapter_name,
+                scenes=chapter_scenes
+            )
+            
+            try:
+                result = engine.analyze_chapter_pacing(cd)
+                payload = result.get('payload', {})
+                chapter_pacing = payload.get('pacing_data', [])
+                all_pacing_data.extend(chapter_pacing)
+            except Exception as e:
+                print(f"Error analyzing pacing for {chapter_name}: {e}")
+
+        # Format results for consistent handling
+        data = {
+            'type': 'pacing',
+            'payload': {'pacing_data': all_pacing_data},
+            'summary': f"Analyzed pacing for {len(self.chapters)} chapters.",
+            'final_report': "Pacing Heatmap data generated chapter by chapter."
+        }
+        
+        self.progress.emit("Pacing analysis complete", 100)
+        return data
 
     def _analyze_timeline_comprehensive(self):
         """Analyze timeline chapter by chapter, then compile"""
@@ -87,7 +134,7 @@ DETAIL: [Explanation]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a timeline continuity expert.",
                     temperature=0.3,
-                    max_tokens=16000
+                    max_tokens=8000
                 )
 
                 chapter_analyses.append({
@@ -160,7 +207,7 @@ DETAIL: [Explanation]
                     messages=[{"role": "user", "content": prompt}],
                     system_message="You are a story consistency expert.",
                     temperature=0.3,
-                    max_tokens=16000
+                    max_tokens=8000
                 )
 
                 chapter_analyses.append({

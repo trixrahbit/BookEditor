@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox, QFileDialog, QApplication
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer
 from PyQt6.QtGui import QAction, QKeySequence, QIcon
 from pathlib import Path
 
@@ -31,11 +31,11 @@ from models.project import Project, ItemType
 from project_dialog import ProjectDialog
 from project_tree import ProjectTreeWidget
 from settings_dialog import SettingsDialog
-from story_insights_dialog import StoryInsightsDialog, AnalysisWorker
 from docx_importer import DocxImporter
 from analyzer import AIAnalyzer
 from story_extractor import StoryExtractor
 from chapter_insights_viewer import ChapterInsightsViewer
+from world_rules_dialog import WorldRulesDialog
 
 LOG_PATH: Optional[Path] = None
 
@@ -121,21 +121,21 @@ class MainWindow(QMainWindow):
                 # First try normal call (works for item_selected(item_id), etc.)
                 return func(*args, **kwargs)
             except TypeError as te:
-                # If it's a mismatch in args (common from QAction.triggered(bool)),
-                # retry with no args.
-                try:
-                    return func()
-                except Exception:
-                    logger.exception("Error in slot after retry (no-args): %s", getattr(func, "__name__", repr(func)))
-                    log_hint = f"\n\nLog file: {LOG_PATH}" if LOG_PATH else ""
-                    QMessageBox.critical(
-                        self,
-                        "Unexpected Error",
-                        "An unexpected error occurred. Please check the logs for details."
-                        f"{log_hint}",
-                    )
-                # If the retry succeeded, we're done
-                return None
+                # Check if this TypeError is actually about argument count
+                # Signal argument count mismatch usually looks like:
+                # "func() takes 1 positional argument but 2 were given"
+                err_msg = str(te)
+                if "argument" in err_msg and ("given" in err_msg or "positional" in err_msg):
+                    # If it's a mismatch in args (common from QAction.triggered(bool)),
+                    # retry with no args.
+                    try:
+                        return func()
+                    except Exception:
+                        pass # Fall through to logger.exception below
+                
+                # If it's some other TypeError (like 'QStatusBar' object is not callable), 
+                # or the retry failed, re-raise it to be caught by the general Exception block
+                raise te
             except Exception:
                 logger.exception("Error in slot: %s", getattr(func, "__name__", repr(func)))
                 log_hint = f"\n\nLog file: {LOG_PATH}" if LOG_PATH else ""
@@ -193,6 +193,7 @@ class MainWindow(QMainWindow):
         self.chapter_insights.setMinimumWidth(280)
         self.chapter_insights.analyze_requested.connect(self._safe_slot(self.analyze_chapter_ai))
         self.chapter_insights.fix_requested.connect(self._safe_slot(self.on_insight_fix_requested))
+        self.chapter_insights.jump_requested.connect(self._safe_slot(self.on_insight_jump_requested))
 
         # Stack them (only one visible at a time)
         right_panel = QWidget()
@@ -228,11 +229,10 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(main_splitter)
 
         # Status bar
-        self.statusBar = QStatusBar()
-        self.setStatusBar(self.statusBar)
-        self.statusBar.showMessage("Ready")
-        self.autosave.saving_started.connect(lambda: self.statusBar.showMessage("Saving...", 0))
-        self.autosave.saving_finished.connect(lambda: self.statusBar.showMessage("Saved ✓", 2000))
+        self.setStatusBar(QStatusBar())
+        self.statusBar().showMessage("Ready")
+        self.autosave.saving_started.connect(lambda: self.statusBar().showMessage("Saving...", 0))
+        self.autosave.saving_finished.connect(lambda: self.statusBar().showMessage("Saved ✓", 2000))
         # Store splitter for settings
         self.main_splitter = main_splitter
         self._right_panel_sizes = None
@@ -556,6 +556,12 @@ class MainWindow(QMainWindow):
 
         writing_menu.addSeparator()
 
+        world_rules_action = QAction("🌌 World Rules Engine...", self)
+        world_rules_action.triggered.connect(self._safe_slot(self.manage_world_rules))
+        writing_menu.addAction(world_rules_action)
+
+        writing_menu.addSeparator()
+
         reformat_scenes_action = QAction("✨ Reformat Using AI...", self)
         reformat_scenes_action.triggered.connect(self._safe_slot(self.reformat_project_scenes_with_ai))
         writing_menu.addAction(reformat_scenes_action)
@@ -612,6 +618,10 @@ class MainWindow(QMainWindow):
         analyze_style_action.triggered.connect(self._safe_slot(self.analyze_writing_style))
         ai_menu.addAction(analyze_style_action)
 
+        analyze_pacing_action = QAction("📉 Analyze &Pacing & Heatmap", self)
+        analyze_pacing_action.triggered.connect(self._safe_slot(self.analyze_pacing))
+        ai_menu.addAction(analyze_pacing_action)
+
         ai_menu.addSeparator()
 
         check_consistency_action = QAction("🔍 Check Story Consistency", self)
@@ -627,7 +637,7 @@ class MainWindow(QMainWindow):
         ai_menu.addSeparator()
 
         story_insights_action = QAction("📊 Deep Insights (Comprehensive)", self)
-        story_insights_action.triggered.connect(self._safe_slot(self.show_story_insights))
+        story_insights_action.triggered.connect(self._safe_slot(self.view_story_insights))
         ai_menu.addAction(story_insights_action)
         ai_menu.addSeparator()
 
@@ -698,7 +708,7 @@ class MainWindow(QMainWindow):
                 # Update UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
-                self.statusBar.showMessage(f"Created project: {self.current_project.name}")
+                self.statusBar().showMessage(f"Created project: {self.current_project.name}")
 
                 # Save as last project
                 self.settings.setValue("lastProjectPath", file_path)
@@ -747,7 +757,7 @@ class MainWindow(QMainWindow):
                 # Load UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
-                self.statusBar.showMessage(f"Opened project: {self.current_project.name}")
+                self.statusBar().showMessage(f"Opened project: {self.current_project.name}")
                 
                 # Save as last project
                 self.settings.setValue("lastProjectPath", file_path)
@@ -764,7 +774,7 @@ class MainWindow(QMainWindow):
 
         # Save is handled automatically by the tree and editor
         # Just update the status
-        self.statusBar.showMessage("Project saved", 3000)
+        self.statusBar().showMessage("Project saved", 3000)
 
 
     def export_project(self, format_type: str):
@@ -863,10 +873,10 @@ class MainWindow(QMainWindow):
         if not item:
             return
 
-        from models.project import ItemType
+        from models.project import ItemType, Chapter
 
         # Show appropriate panel based on item type
-        if item.item_type == ItemType.CHAPTER:
+        if isinstance(item, Chapter):
             # Show chapter insights instead of metadata
             self.metadata_panel.setVisible(False)
             self.chapter_insights.setVisible(True)
@@ -940,50 +950,6 @@ class MainWindow(QMainWindow):
             "Created by Rabbit Consulting"
         )
 
-    def show_story_insights(self):
-        """Show comprehensive story insights dialog"""
-        if not self.current_project:
-            QMessageBox.warning(self, "No Project", "No project is currently open")
-            return
-
-        # Gather all project data
-        scenes = [s.to_dict() for s in self.db_manager.load_items(
-            self.current_project.id, ItemType.SCENE)]
-        characters = [c.to_dict() for c in self.db_manager.load_items(
-            self.current_project.id, ItemType.CHARACTER)]
-        plot_threads = [p.to_dict() for p in self.db_manager.load_items(
-            self.current_project.id, ItemType.PLOT_THREAD)]
-        chapters = [ch.to_dict() for ch in self.db_manager.load_items(
-            self.current_project.id, ItemType.CHAPTER)]
-
-        if not scenes:
-            QMessageBox.warning(
-                self,
-                "No Content",
-                "Please write some scenes before running Story Insights."
-            )
-            return
-
-        # Create insights dialog
-        dialog = StoryInsightsDialog(self)
-
-        # Create and start analysis worker
-        analyzer = AIAnalyzer()
-        worker = AnalysisWorker(
-            analyzer,
-            self.current_project.to_dict(),
-            scenes,
-            characters,
-            plot_threads,
-            chapters
-        )
-
-        worker.progress.connect(self._safe_slot(dialog.update_progress))
-        worker.finished.connect(self._safe_slot(dialog.show_analysis_results))
-        worker.error.connect(self._safe_slot(dialog.show_error))
-
-        worker.start()
-        dialog.exec()
 
     def import_docx(self):
         """Import a Word document into the project"""
@@ -1087,18 +1053,23 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Handle window close event"""
-        # Shutdown insight service
-        if self.insight_service:
-            self.insight_service.shutdown()
+        try:
+            # Shutdown insight service
+            if hasattr(self, 'insight_service') and self.insight_service:
+                self.insight_service.shutdown()
 
-        # Save settings
-        self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("windowState", self.saveState())
-        self.settings.setValue("splitterState", self.main_splitter.saveState())
+            # Save settings
+            if hasattr(self, 'settings') and self.settings:
+                self.settings.setValue("geometry", self.saveGeometry())
+                self.settings.setValue("windowState", self.saveState())
+                if hasattr(self, 'main_splitter') and self.main_splitter:
+                    self.settings.setValue("splitterState", self.main_splitter.saveState())
 
-        # Close database
-        if self.db_manager:
-            self.db_manager.close()
+            # Close database
+            if hasattr(self, 'db_manager') and self.db_manager:
+                self.db_manager.close()
+        except Exception as e:
+            print(f"Error during shutdown: {e}")
 
         event.accept()
 
@@ -1139,9 +1110,9 @@ class MainWindow(QMainWindow):
             if self.editor.current_item and self.editor.current_item.id == item_id:
                 self.editor.auto_save()
 
-            from models.project import ItemType
+            from models.project import ItemType, Scene, Chapter
 
-            if item.item_type == ItemType.SCENE:
+            if isinstance(item, Scene):
                 # Uses your existing AIIntegration pipeline to fill Summary/Goal/Conflict/Outcome
                 def _refresh():
                     refreshed = self.db_manager.load_item(item_id)
@@ -1150,7 +1121,7 @@ class MainWindow(QMainWindow):
 
                 self.ai_integration.fill_scene_properties(item_id, callback=_refresh)
 
-            elif item.item_type == ItemType.CHAPTER:
+            elif isinstance(item, Chapter):
                 # You said you’ll handle the UI next — chapter analysis can be wired here later.
                 QMessageBox.information(
                     self,
@@ -1186,7 +1157,7 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self.chapter_insights.refresh()
 
-    def check_story_consistency(self):
+    def check_story_consistency(self, *args):
         """Check story for consistency issues"""
         if not self.ai_integration:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1239,7 +1210,7 @@ class MainWindow(QMainWindow):
             f"• Use Check Story Consistency"
         )
 
-    def extract_characters(self):
+    def extract_characters(self, *args):
         """Extract characters from manuscript automatically"""
         if not self.story_extractor:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1255,7 +1226,7 @@ class MainWindow(QMainWindow):
 
         self.story_extractor.extract_characters()
 
-    def extract_locations(self):
+    def extract_locations(self, *args):
         """Extract locations from manuscript automatically"""
         if not self.story_extractor:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1271,7 +1242,7 @@ class MainWindow(QMainWindow):
 
         self.story_extractor.extract_locations()
 
-    def analyze_plot(self):
+    def analyze_plot(self, *args):
         """Analyze plot structure chapter by chapter"""
         if not self.story_extractor:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1288,7 +1259,7 @@ class MainWindow(QMainWindow):
         self.story_extractor.analyze_plot()
 
 
-    def analyze_timeline(self):
+    def analyze_timeline(self, *args):
         """Analyze story timeline"""
         if not self.ai_integration:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1296,7 +1267,7 @@ class MainWindow(QMainWindow):
 
         self.ai_integration.analyze_timeline()
 
-    def analyze_writing_style(self):
+    def analyze_writing_style(self, *args):
         """Analyze writing style"""
         if not self.ai_integration:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1304,7 +1275,15 @@ class MainWindow(QMainWindow):
 
         self.ai_integration.analyze_writing_style()
 
-    def view_story_insights(self):
+    def analyze_pacing(self, *args):
+        """Analyze book pacing and tension"""
+        if not self.ai_integration:
+            QMessageBox.warning(self, "No Project", "Please open a project first")
+            return
+
+        self.ai_integration.analyze_pacing()
+
+    def view_story_insights(self, *args):
         """View Story Insights dashboard"""
         if not self.ai_integration:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1312,7 +1291,7 @@ class MainWindow(QMainWindow):
 
         self.ai_integration.show_story_insights()
 
-    def save_current_content(self):
+    def save_current_content(self, *args):
         """Actually save the current content"""
         if not self.current_project or not self.db_manager:
             return
@@ -1322,7 +1301,7 @@ class MainWindow(QMainWindow):
         if current_item:
             print(f"Saving: {current_item.name}")
             self.db_manager.save_item(self.current_project.id, current_item)
-            self.statusBar.showMessage("Saved", 2000)
+            self.statusBar().showMessage("Saved", 2000)
 
     def on_insight_fix_requested(self, issue: Dict[str, Any], chapter_id: str):
         """Handle AI fix request from chapter insights"""
@@ -1351,6 +1330,31 @@ class MainWindow(QMainWindow):
             # Refresh insights after fix applied
             self.chapter_insights.refresh()
 
+    def on_insight_jump_requested(self, issue: Dict[str, Any]):
+        """Navigate to the scene and paragraph anchor of an issue"""
+        scene_id = issue.get('scene_id')
+        scene_name = issue.get('scene_name')
+        anchors = issue.get('anchors', [])
+        
+        if not scene_id and not scene_name:
+            QMessageBox.warning(self, "No Scene", "This issue has no associated scene")
+            return
+            
+        print(f"[MainWindow] Jump requested to scene: {scene_id or scene_name}, anchors: {anchors}")
+        
+        # 1. Select the scene in the project tree
+        if scene_id:
+            self.project_tree.select_item_by_id(scene_id)
+        elif scene_name:
+            # Fallback to name if ID is missing (e.g. from heatmap)
+            self.project_tree.select_item_by_name(scene_name)
+        
+        # 2. If we have anchors, jump to the first one in the editor
+        if anchors:
+            # Use QTimer to give the editor time to load the content
+            # (though load_item is usually synchronous, it's safer)
+            QTimer.singleShot(200, lambda: self.editor.jump_to_anchor(anchors[0]))
+
     def batch_analyze_chapters(self):
         """Analyze all chapters in batch"""
         if not self.current_project:
@@ -1371,7 +1375,7 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
 
-    def manage_writing_personas(self):
+    def manage_writing_personas(self, *args):
         """Open persona manager"""
         if not self.persona_manager:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1381,7 +1385,19 @@ class MainWindow(QMainWindow):
         dialog = PersonaManagerDialog(self, self.persona_manager)
         dialog.exec()
 
-    def rewrite_selection_with_persona(self):
+    def manage_world_rules(self, *args):
+        """Show the world rules engine dialog"""
+        if not self.current_project:
+            QMessageBox.warning(self, "No Project", "Please open a project first.")
+            return
+
+        dialog = WorldRulesDialog(self, self.current_project)
+        if dialog.exec():
+            # Save project to persist rule changes
+            self.db_manager.save_project(self.current_project)
+            self.statusBar().showMessage("World rules saved.", 3000)
+
+    def rewrite_selection_with_persona(self, *args):
         """Rewrite selected text with persona"""
         if not self.persona_manager:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1417,7 +1433,7 @@ class MainWindow(QMainWindow):
                 cursor.insertText(rewritten)
                 QMessageBox.information(self, "Applied", "Rewrite applied successfully!")
 
-    def rewrite_scene_with_persona(self):
+    def rewrite_scene_with_persona(self, *args):
         """Rewrite entire current scene with persona"""
         if not self.persona_manager:
             QMessageBox.warning(self, "No Project", "Please open a project first")
@@ -1480,7 +1496,7 @@ class MainWindow(QMainWindow):
 
                 QMessageBox.information(self, "Applied", "Scene rewritten successfully!")
 
-    def reformat_project_scenes_with_ai(self):
+    def reformat_project_scenes_with_ai(self, *args):
         """Open AI reformat dialog to select chapters/scenes and run formatting."""
         if not self.current_project:
             QMessageBox.warning(self, "No Project", "Please open a project first")

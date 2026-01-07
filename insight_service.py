@@ -33,7 +33,7 @@ class InsightService:
 
     # --------- enqueue jobs ----------
 
-    def enqueue_chapter_analyses(self, project_id: str, chapter_id: str, include_style=True, include_reader_snapshot=True):
+    def enqueue_chapter_analyses(self, project_id: str, chapter_id: str, include_style=True, include_reader_snapshot=True, include_world_rules=True):
         chapter = self._load_chapter_data(project_id, chapter_id)
         if not chapter:
             raise ValueError("Chapter not found")
@@ -51,9 +51,12 @@ class InsightService:
         if include_reader_snapshot:
             self._enqueue_if_needed(project_id, "chapter", chapter_id, "reader_snapshot", chapter_source,
                                     kind="chapter_reader_snapshot", payload={"project_id": project_id, "chapter_id": chapter_id})
+        if include_world_rules:
+            self._enqueue_if_needed(project_id, "chapter", chapter_id, "world_rules", chapter_source,
+                                    kind="chapter_world_rules", payload={"project_id": project_id, "chapter_id": chapter_id})
 
     def enqueue_book_analyses(self, project_id: str, include_bible=True, include_threads=True,
-                             include_promise=True, include_voice=True, include_reader_sim=True):
+                             include_promise=True, include_voice=True, include_reader_sim=True, include_pacing=True):
         compiled = self.compile_book_text(project_id)
         source_hash = sha256_text(compiled)
 
@@ -72,6 +75,9 @@ class InsightService:
         if include_reader_sim:
             self._enqueue_if_needed(project_id, "book", None, "reader_sim", source_hash,
                                     kind="book_reader_sim", payload={"project_id": project_id})
+        if include_pacing:
+            self._enqueue_if_needed(project_id, "book", None, "pacing", source_hash,
+                                    kind="book_pacing", payload={"project_id": project_id})
 
     def _enqueue_if_needed(self, project_id: str, scope: str, scope_id: Optional[str], insight_type: str,
                            source_hash: str, kind: str, payload: Dict[str, Any]) -> None:
@@ -114,6 +120,13 @@ class InsightService:
                 self._store_generic(project_id, "chapter", chapter_id, "reader_snapshot", result, chapter_source_hash)
                 return result
 
+            if kind == "chapter_world_rules":
+                project = self.db_manager.load_project(project_id)
+                rules = [r.to_dict() for r in project.world_rules if r.is_active]
+                result = self.engine.analyze_chapter_world_rules(chapter, rules)
+                self._store_chapter_issues(project_id, chapter_id, "world_rules", result, chapter_source_hash)
+                return result
+
             raise ValueError(f"Unknown job kind: {kind}")
 
         # book level
@@ -121,29 +134,139 @@ class InsightService:
         book_hash = sha256_text(compiled)
 
         if kind == "book_bible":
-            existing = self.get_story_bible(project_id)  # optional
-            result = self.engine.analyze_book_story_bible(compiled, existing_bible=existing)
+            # Incremental Story Bible Build
+            existing = self.get_story_bible(project_id) or {}
+            from models.project import ItemType
+            chapters = self.db_manager.load_items(project_id, ItemType.CHAPTER)
+            
+            current_bible = existing
+            for ch in chapters:
+                cd = self._load_chapter_data(project_id, ch.id)
+                if cd:
+                    # Compile text for just this chapter
+                    ch_text = []
+                    for s in cd.scenes:
+                        plain = html_to_plaintext(s.get("content", "") or "")
+                        ch_text.append(f"SCENE: {s['name']}\n{plain}")
+                    compiled_ch = "\n\n".join(ch_text)
+                    
+                    try:
+                        # Update bible with this chapter's info
+                        res = self.engine.analyze_book_story_bible(compiled_ch, existing_bible=current_bible)
+                        current_bible = res.get("payload") or res
+                    except Exception as e:
+                        print(f"Error updating bible with {ch.name}: {e}")
+            
+            result = {"type": "story_bible", "payload": current_bible}
             self._store_generic(project_id, "book", None, "story_bible", result, book_hash)
             return result
 
         if kind == "book_threads":
-            result = self.engine.analyze_book_threads(compiled)
+            # Incremental Threads analysis
+            existing = self.insight_db.get_latest(project_id, "book", None, "threads")
+            existing_data = existing.payload.get("payload") if existing else {}
+            from models.project import ItemType
+            chapters = self.db_manager.load_items(project_id, ItemType.CHAPTER)
+            
+            current_data = existing_data
+            for ch in chapters:
+                cd = self._load_chapter_data(project_id, ch.id)
+                if cd:
+                    ch_text = "\n\n".join([f"SCENE: {s['name']}\n{html_to_plaintext(s['content'])}" for s in cd.scenes])
+                    try:
+                        res = self.engine.analyze_book_threads(ch_text, existing_threads=current_data)
+                        current_data = res.get("payload") or res
+                    except Exception as e:
+                        print(f"Error updating threads with {ch.name}: {e}")
+            
+            result = {"type": "threads", "payload": current_data}
             self._store_generic(project_id, "book", None, "threads", result, book_hash)
             return result
 
         if kind == "book_promise_payoff":
-            result = self.engine.analyze_book_promise_payoff(compiled)
+            # Incremental Promise-Payoff analysis
+            existing = self.insight_db.get_latest(project_id, "book", None, "promise_payoff")
+            existing_data = existing.payload.get("payload") if existing else {}
+            from models.project import ItemType
+            chapters = self.db_manager.load_items(project_id, ItemType.CHAPTER)
+            
+            current_data = existing_data
+            for ch in chapters:
+                cd = self._load_chapter_data(project_id, ch.id)
+                if cd:
+                    ch_text = "\n\n".join([f"SCENE: {s['name']}\n{html_to_plaintext(s['content'])}" for s in cd.scenes])
+                    try:
+                        res = self.engine.analyze_book_promise_payoff(ch_text, existing_promises=current_data)
+                        current_data = res.get("payload") or res
+                    except Exception as e:
+                        print(f"Error updating promises with {ch.name}: {e}")
+            
+            result = {"type": "promise_payoff", "payload": current_data}
             self._store_generic(project_id, "book", None, "promise_payoff", result, book_hash)
             return result
 
         if kind == "book_voice_drift":
-            result = self.engine.analyze_book_voice_drift(compiled)
+            # Incremental Voice Drift analysis
+            existing = self.insight_db.get_latest(project_id, "book", None, "voice_drift")
+            existing_data = existing.payload.get("payload") if existing else {}
+            from models.project import ItemType
+            chapters = self.db_manager.load_items(project_id, ItemType.CHAPTER)
+            
+            current_data = existing_data
+            for ch in chapters:
+                cd = self._load_chapter_data(project_id, ch.id)
+                if cd:
+                    ch_text = "\n\n".join([f"SCENE: {s['name']}\n{html_to_plaintext(s['content'])}" for s in cd.scenes])
+                    try:
+                        res = self.engine.analyze_book_voice_drift(ch_text, existing_voice=current_data)
+                        current_data = res.get("payload") or res
+                    except Exception as e:
+                        print(f"Error updating voice drift with {ch.name}: {e}")
+            
+            result = {"type": "voice_drift", "payload": current_data}
             self._store_generic(project_id, "book", None, "voice_drift", result, book_hash)
             return result
 
         if kind == "book_reader_sim":
-            result = self.engine.analyze_book_reader_sim(compiled)
+            # Incremental Reader Sim
+            existing = self.insight_db.get_latest(project_id, "book", None, "reader_sim")
+            existing_data = existing.payload.get("payload") if existing else {}
+            from models.project import ItemType
+            chapters = self.db_manager.load_items(project_id, ItemType.CHAPTER)
+            
+            current_data = existing_data
+            for ch in chapters:
+                cd = self._load_chapter_data(project_id, ch.id)
+                if cd:
+                    ch_text = "\n\n".join([f"SCENE: {s['name']}\n{html_to_plaintext(s['content'])}" for s in cd.scenes])
+                    try:
+                        res = self.engine.analyze_book_reader_sim(ch_text, existing_sim=current_data)
+                        current_data = res.get("payload") or res
+                    except Exception as e:
+                        print(f"Error updating reader sim with {ch.name}: {e}")
+            
+            result = {"type": "reader_sim", "payload": current_data}
             self._store_generic(project_id, "book", None, "reader_sim", result, book_hash)
+            return result
+
+        if kind == "book_pacing":
+            # Incremental Pacing Analysis
+            all_pacing_data = []
+            from models.project import ItemType
+            chapters = self.db_manager.load_items(project_id, ItemType.CHAPTER)
+            
+            for ch in chapters:
+                cd = self._load_chapter_data(project_id, ch.id)
+                if cd:
+                    try:
+                        res = self.engine.analyze_chapter_pacing(cd)
+                        pacing = res.get("payload", {}).get("pacing_data", [])
+                        all_pacing_data.extend(pacing)
+                    except Exception as e:
+                        print(f"Error in incremental pacing for {ch.name}: {e}")
+            
+            result = {"type": "pacing", "payload": {"pacing_data": all_pacing_data}}
+            self._store_generic(project_id, "book", None, "pacing", result, book_hash)
             return result
 
         raise ValueError(f"Unknown job kind: {kind}")
@@ -152,7 +275,20 @@ class InsightService:
 
     def _store_chapter_issues(self, project_id: str, chapter_id: str, insight_type: str,
                              result: Dict[str, Any], source_hash: str) -> None:
-        issues = result.get("issues", [])
+        # Check if it's world rules or general issues
+        if insight_type == "world_rules":
+            violations = result.get("violations", [])
+            issues = []
+            for v in violations:
+                issues.append({
+                    "severity": v.get("severity", "Major"),
+                    "issue": v.get("rule_name", "World Rule Violation"),
+                    "detail": v.get("violation", ""),
+                    "suggestions": [v.get("suggestion", "")] if v.get("suggestion") else []
+                })
+        else:
+            issues = result.get("issues", [])
+
         # normalize issues into your viewer-friendly issue dicts
         normalized = []
         for it in issues:

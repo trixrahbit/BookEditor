@@ -2,6 +2,7 @@
 AI Prompts - Centralized prompts for all AI features
 """
 from typing import Dict, Any, List
+import json
 
 
 class AIPrompts:
@@ -13,6 +14,48 @@ class AIPrompts:
         system = "You are a professional editor and writing coach helping authors improve their prose."
 
         user = f"""Please rewrite the following text according to this instruction: {instruction}
+
+ORIGINAL TEXT:
+{original_text}
+
+Provide ONLY the rewritten text with no explanations or preamble."""
+
+        return {
+            "system": system,
+            "user": user
+        }
+
+    @staticmethod
+    def rewrite_in_character_voice(original_text: str, character_name: str, character_profile: Dict[str, Any]) -> dict:
+        """Prompt for rewriting dialogue/text in a specific character's voice"""
+        system = "You are a professional novelist and character voice expert."
+
+        voice_lock = f"""CHARACTER PROFILE:
+Name: {character_name}
+Role: {character_profile.get('role', 'unknown')}
+Description: {character_profile.get('description', '')}
+Personality: {character_profile.get('personality', '')}
+Motivation: {character_profile.get('motivation', '')}
+Internal Conflict: {character_profile.get('internal_conflict', '')}
+External Conflict: {character_profile.get('external_conflict', '')}
+Secrets: {character_profile.get('secrets', '')}
+
+VOICE ATTRIBUTES:
+Sentence Length: {character_profile.get('sentence_length', 'varies')}
+Vocabulary: {character_profile.get('vocabulary', 'standard')}
+Formality: {character_profile.get('formality', 'neutral')}
+Sarcasm/Tone: {character_profile.get('sarcasm_tone', 'neutral')}
+"""
+
+        user = f"""Please rewrite the following text in the voice of {character_name}.
+
+{voice_lock}
+
+IMPORTANT GUIDELINES:
+1. Maintain {character_name}'s specific sentence structure, vocabulary, and tone.
+2. Keep the core meaning and any important plot points.
+3. If this is dialogue, ensure it sounds like {character_name} would actually say it.
+4. Use the internal and external conflicts to inform their tone and subtext.
 
 ORIGINAL TEXT:
 {original_text}
@@ -69,11 +112,13 @@ OUTCOME: [What changes or is resolved by the end]"""
 
         # Build character info
         character_text = "\n".join([
-            f"• {c.get('name', 'Unknown')}: {c.get('role', 'unknown role')} - {c.get('description', '')[:100]}"
+            f"• {c.get('name', 'Unknown')}: {c.get('role', 'unknown role')} - {c.get('description', '')[:100]}\n"
+            f"  Voice: {c.get('sentence_length', 'N/A')}, {c.get('vocabulary', 'N/A')}, {c.get('formality', 'N/A')}, {c.get('sarcasm_tone', 'N/A')}"
             for c in characters[:20]  # Limit to first 20 characters
         ])
 
         user = f"""Check this story for consistency issues and continuity errors.
+Also warn if dialogue doesn't match the established voice of the characters.
 
 CHARACTERS:
 {character_text}
@@ -83,9 +128,10 @@ SCENES:
 
 Please identify:
 1. Character inconsistencies (name changes, personality contradictions, forgotten traits)
-2. Timeline issues (events out of order, time contradictions)
-3. Plot holes (unresolved threads, logical gaps, contradictions)
-4. Continuity errors (objects appearing/disappearing, location errors)
+2. Dialogue Voice drift (when dialogue doesn't match established character voice attributes)
+3. Timeline issues (events out of order, time contradictions)
+4. Plot holes (unresolved threads, logical gaps, contradictions)
+5. Continuity errors (objects appearing/disappearing, location errors)
 
 Format your response as a numbered list of specific issues found. If no issues, say "No major consistency issues found."""
 
@@ -211,6 +257,77 @@ Analyze:
         return "You are a professional writing coach. Be specific and practical. Use paragraph references."
 
     @staticmethod
+    def book_pacing_prompt(book_context: Dict[str, Any]) -> str:
+        return f"""
+    Analyze the pacing, intensity, and tension of the book based on the manuscript excerpts.
+
+    MANUSCRIPT EXCERPTS:
+    {book_context.get("compiled_text", "")}
+
+    For each scene, provide:
+    - scene_name: The name of the scene.
+    - intensity: A value from 0 (calm) to 10 (intense).
+    - dialogue_ratio: A value from 0 (all exposition) to 1 (all dialogue).
+    - tension: A value from 0 (low) to 10 (high).
+    - length: Approximate word count or character count of the scene.
+
+    OUTPUT: JSON only.
+    {{
+      "pacing_data": [
+        {{
+          "scene_name": "...",
+          "intensity": 5,
+          "dialogue_ratio": 0.4,
+          "tension": 3,
+          "length": 1200
+        }},
+        ...
+      ]
+    }}
+
+    Return JSON only.
+    """.strip()
+
+    @staticmethod
+    def chapter_pacing_prompt(chapter_name: str, scene_blocks: List[Dict[str, Any]]) -> str:
+        compiled = []
+        for s in scene_blocks:
+            compiled.append(f"SCENE: {s['scene_name']}\n{s['numbered_text']}")
+        compiled_text = "\n\n---\n\n".join(compiled)
+
+        return f"""
+    Analyze the pacing, intensity, and tension of this chapter.
+
+    CHAPTER: {chapter_name}
+
+    SCENES:
+    {compiled_text}
+
+    For each scene in this chapter, provide:
+    - scene_name: The name of the scene.
+    - intensity: A value from 0 (calm) to 10 (intense).
+    - dialogue_ratio: A value from 0 (all exposition) to 1 (all dialogue).
+    - tension: A value from 0 (low) to 10 (high).
+    - length: Approximate word count or character count of the scene.
+
+    OUTPUT: JSON only.
+    {{
+      "pacing_data": [
+        {{
+          "scene_name": "...",
+          "intensity": 5,
+          "dialogue_ratio": 0.4,
+          "tension": 3,
+          "length": 1200
+        }},
+        ...
+      ]
+    }}
+
+    Return JSON only.
+    """.strip()
+
+    @staticmethod
     def system_reader_sim() -> str:
         return "You simulate readers realistically. Be concrete, not vague."
 
@@ -267,7 +384,7 @@ Analyze:
         compiled_text = "\n\n---\n\n".join(compiled)
 
         return f"""
-    Analyze timeline issues in this chapter.
+    Analyze timeline issues and physical consistency in this chapter.
 
     CHAPTER: {chapter_name}
 
@@ -275,19 +392,19 @@ Analyze:
     {compiled_text}
 
     Identify SPECIFIC issues:
-    - time contradictions
-    - impossible sequences
-    - location conflicts
-    - day/night inconsistencies
-    - implied time jumps that break logic
+    - Timeline drift (e.g., scene says Tuesday, but previous scene/chapter implied it's already Wednesday/Thursday).
+    - Day/Night or Weather inconsistencies (e.g., raining in one scene, dry in the next without time for it to change).
+    - Object continuity (e.g., a character holds a gun, then it's gone; or an injury disappears too quickly).
+    - Outfit/Physical changes that are unexplained.
+    - Impossible sequences or location conflicts (character in two places at once).
 
     OUTPUT: JSON array only, each issue must include anchors.
     [
       {{
         "type": "timeline",
         "severity": "Critical|Major|Minor",
-        "issue": "...",
-        "detail": "...",
+        "issue": "Specific description of the contradiction",
+        "detail": "Detailed explanation of why this is a conflict (reference specific scenes/paragraphs)",
         "location": "<scene name>",
         "anchors": ["P3","P4"],     // paragraph ids within that scene
         "quote": "short excerpt from relevant paragraph"
@@ -297,6 +414,7 @@ Analyze:
     Return JSON only.
     """.strip()
 
+    @staticmethod
     def chapter_consistency_prompt(chapter_name: str, scene_blocks: List[Dict[str, Any]]) -> str:
         compiled = []
         for s in scene_blocks:
@@ -304,7 +422,7 @@ Analyze:
         compiled_text = "\n\n---\n\n".join(compiled)
 
         return f"""
-    Check for story consistency issues in this chapter.
+    Check for story and character consistency issues in this chapter.
 
     CHAPTER: {chapter_name}
 
@@ -312,18 +430,18 @@ Analyze:
     {compiled_text}
 
     Identify:
-    - character behavior inconsistencies
-    - contradictions with earlier events (within this chapter’s scenes)
-    - continuity errors
-    - forgotten context inside the chapter
+    - Character eye color / age / accent drift (e.g., eyes were blue, now brown; accent was southern, now posh).
+    - Personality or behavior contradictions (character acting 'out of character' without story reason).
+    - Contradictions with earlier events (within this chapter’s scenes).
+    - Forgotten context (e.g., character forgot they were shot in the leg earlier in the same chapter).
 
     OUTPUT: JSON array only.
     [
       {{
         "type": "consistency",
         "severity": "Critical|Major|Minor",
-        "issue": "...",
-        "detail": "...",
+        "issue": "Character/Story drift description",
+        "detail": "Explanation of the inconsistency",
         "location": "<scene name>",
         "anchors": ["P2"],
         "quote": "short excerpt"
@@ -405,10 +523,19 @@ Analyze:
     """.strip()
 
     def book_threads_prompt(book_context: Dict[str, Any]) -> str:
+        existing = book_context.get("existing_threads", {})
         return f"""
-    Track threads across the whole book: themes, character arcs, mysteries.
+    Track threads across the book: themes, character arcs, mysteries.
+    You will be given an EXISTING ANALYSIS and NEW MANUSCRIPT EXCERPTS.
+    Update the analysis based on the new excerpts.
 
-    Return JSON only:
+    EXISTING ANALYSIS:
+    {json.dumps(existing, indent=2)}
+
+    NEW MANUSCRIPT EXCERPTS:
+    {book_context.get("compiled_text", "")}
+
+    Return UPDATED JSON only:
     {{
       "themes": [
         {{
@@ -437,49 +564,64 @@ Analyze:
         }}
       ]
     }}
-
-    MANUSCRIPT EXCERPTS:
-    {book_context.get("compiled_text", "")}
     """.strip()
 
     def book_promise_payoff_prompt(book_context: Dict[str, Any]) -> str:
+        existing = book_context.get("existing_promises", {})
         return f"""
     Audit promise-payoff across the book.
+    You will be given an EXISTING AUDIT and NEW MANUSCRIPT EXCERPTS.
+    Update the audit based on the new excerpts.
 
-    Return JSON only:
+    EXISTING AUDIT:
+    {json.dumps(existing, indent=2)}
+
+    NEW MANUSCRIPT EXCERPTS:
+    {book_context.get("compiled_text", "")}
+
+    Return UPDATED JSON only:
     {{
       "promises": [{{"promise": "...", "introduced": "Chapter X", "status": "Fulfilled|Unfulfilled|Ambiguous", "notes": "..."}}],
       "questions": [{{"question": "...", "raised": "Chapter X", "status": "Answered|Unanswered|Ambiguous", "notes": "..."}}]
     }}
-
-    MANUSCRIPT:
-    {book_context.get("compiled_text", "")}
     """.strip()
 
     def book_voice_drift_prompt(book_context: Dict[str, Any]) -> str:
+        existing = book_context.get("existing_voice", {})
         return f"""
     Analyze narrative voice and tone consistency across the manuscript.
+    You will be given an EXISTING ANALYSIS and NEW MANUSCRIPT EXCERPTS.
+    Update the analysis based on the new excerpts.
 
-    Return JSON only:
+    EXISTING ANALYSIS:
+    {json.dumps(existing, indent=2)}
+
+    NEW MANUSCRIPT EXCERPTS:
+    {book_context.get("compiled_text", "")}
+
+    Return UPDATED JSON only:
     {{
       "overall_voice": "...",
       "tone_shifts": [{{"chapter": "Chapter X", "note": "...", "severity": "minor|major"}}],
       "pacing_spikes": [{{"chapter": "Chapter X", "note": "..."}}],
       "recommendations": [string]
     }}
-
-    MANUSCRIPT:
-    {book_context.get("compiled_text", "")}
     """.strip()
 
     def book_reader_sim_prompt(book_context: Dict[str, Any]) -> str:
+        existing = book_context.get("existing_sim", {})
         return f"""
-    Simulate 3 readers for the entire book:
-    - careful reader
-    - skimmer
-    - distracted reader
+    Simulate 3 readers for the book.
+    You will be given an EXISTING SIMULATION and NEW MANUSCRIPT EXCERPTS.
+    Update the simulation based on the new excerpts.
 
-    Return JSON only:
+    EXISTING SIMULATION:
+    {json.dumps(existing, indent=2)}
+
+    NEW MANUSCRIPT EXCERPTS:
+    {book_context.get("compiled_text", "")}
+
+    Return UPDATED JSON only:
     {{
       "careful_reader": {{
         "understanding": "detailed summary",
@@ -497,9 +639,48 @@ Analyze:
         "missed": "most things"
       }}
     }}
+    """.strip()
 
-    MANUSCRIPT:
-    {book_context.get("compiled_text", "")}
+    @staticmethod
+    def system_world_rules():
+        return """
+    You are a World Rules Engine. Your job is to strictly enforce the laws of the universe, magic systems, 
+    technological limits, and cultural norms defined for a story.
+    
+    You will be provided with:
+    1. A set of WORLD RULES (Laws of the Universe).
+    2. A MANUSCRIPT EXCERPT (Scene or Chapter).
+    
+    You must identify any VIOLATIONS where the manuscript contradicts the defined rules.
+    Be especially attentive to:
+    - Magic system limits (e.g., mana costs, forbidden spells, physical toll).
+    - Technology level (e.g., no cell phones in medieval setting).
+    - Cultural rules (e.g., social taboos, language requirements).
+    - Physics exceptions (e.g., how gravity works in this world).
+    - Shifts in time or reality that must follow specific logic.
+    
+    Return your findings as a strict JSON list of violation objects.
+    """.strip()
+
+    @staticmethod
+    def world_rules_validation_prompt(rules: List[Dict[str, Any]], manuscript: str) -> str:
+        return f"""
+    WORLD RULES:
+    {json.dumps(rules, indent=2)}
+    
+    MANUSCRIPT EXCERPT:
+    {manuscript}
+    
+    Analyze the excerpt for rule violations. For each violation, specify:
+    - rule_name: The name of the rule violated.
+    - violation: A brief description of what happened in the text that broke the rule.
+    - severity: 'minor' (can be explained away) or 'major' (breaks immersion or plot logic).
+    - suggestion: How to fix it.
+    
+    Return strict JSON only:
+    [
+      {{"rule_name": "...", "violation": "...", "severity": "...", "suggestion": "..."}}
+    ]
     """.strip()
 
 
@@ -569,6 +750,7 @@ system_consistency = AIPrompts.system_consistency
 system_style = AIPrompts.system_style
 system_reader_sim = AIPrompts.system_reader_sim
 system_story_bible = AIPrompts.system_story_bible
+system_world_rules = AIPrompts.system_world_rules
 
 # Chapter prompts
 chapter_timeline_prompt = AIPrompts.chapter_timeline_prompt

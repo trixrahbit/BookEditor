@@ -539,12 +539,81 @@ class AIFeatures:
 
         self.worker.start()
 
+    def analyze_pacing(self):
+        """Analyze book pacing and tension"""
+        if not self.check_configured():
+            return
+
+        # Get data
+        from models.project import ItemType
+        chapters = [c.to_dict() for c in self.db_manager.load_items(self.project_id, ItemType.CHAPTER)]
+        scenes = [s.to_dict() for s in self.db_manager.load_items(self.project_id, ItemType.SCENE)]
+
+        if not scenes:
+            QMessageBox.warning(
+                self.parent,
+                "No Content",
+                "Please write some scenes before analyzing pacing."
+            )
+            return
+
+        # Show progress
+        progress = QProgressDialog("Analyzing book pacing and tension...", "Cancel", 0, 100, self.parent)
+        progress.setWindowTitle("Pacing Analysis")
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+
+        # Start comprehensive worker
+        self.worker = ComprehensiveAnalysisWorker("pacing", chapters, scenes)
+
+        def on_finished(data):
+            progress.close()
+
+            # Save to insights database
+            self.insights_db.save_analysis(data)
+
+            # Show results
+            QMessageBox.information(
+                self.parent,
+                "Pacing Analysis Complete",
+                data.get('summary', 'Analysis complete')
+            )
+
+            # Open Story Insights viewer
+            self.show_story_insights()
+
+        def on_error(error):
+            progress.close()
+            QMessageBox.critical(
+                self.parent,
+                "Error",
+                f"Failed to analyze pacing:\n\n{error}"
+            )
+
+        def on_progress(message, percentage):
+            progress.setLabelText(message)
+            progress.setValue(percentage)
+
+        self.worker.finished.connect(on_finished)
+        self.worker.error.connect(on_error)
+        self.worker.progress.connect(on_progress)
+        progress.canceled.connect(self.worker.terminate)
+
+        self.worker.start()
+
     def show_story_insights(self):
         """Show the Story Insights viewer with all saved analyses"""
         from story_insights_viewer import StoryInsightsViewer
 
         # Pass db_manager and project_id for AI Fix feature
         viewer = StoryInsightsViewer(self.parent, self.db_manager, self.project_id)
+        
+        # Connect re-run signal
+        viewer.rerun_pacing_requested.connect(lambda: [viewer.accept(), self.analyze_pacing()])
+
+        # Connect jump requested signal
+        if hasattr(self.parent, 'on_insight_jump_requested'):
+            viewer.jump_requested.connect(self.parent.on_insight_jump_requested)
 
         # Load saved analyses
         timeline_data = self.insights_db.load_analysis('timeline')
@@ -558,5 +627,9 @@ class AIFeatures:
         style_data = self.insights_db.load_analysis('style')
         if style_data:
             viewer.load_style_data(style_data)
+
+        pacing_data = self.insights_db.load_analysis('pacing')
+        if pacing_data:
+            viewer.load_pacing_data(pacing_data)
 
         viewer.exec()
