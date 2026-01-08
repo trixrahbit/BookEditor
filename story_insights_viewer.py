@@ -18,6 +18,8 @@ import html as _html
 from pacing_heatmap import PacingHeatmapWidget
 
 
+from theme_manager import theme_manager
+
 class CollapsibleSection(QWidget):
     """A widget that can collapse its contents"""
     def __init__(self, title: str, parent=None):
@@ -288,6 +290,7 @@ class IssueCard(QFrame):
 
         location_label = QLabel(f"📍 {self.issue_data.get('location', 'Unknown')}")
         location_label.setStyleSheet("color: #A0A0A0; font-size: 10pt; margin-left: 10px;")
+        location_label.setWordWrap(True)
         header.addWidget(location_label)
 
         layout.addLayout(header)
@@ -300,6 +303,7 @@ class IssueCard(QFrame):
 
         # Chapter info
         chapter = QLabel(f"Chapter: {self.issue_data.get('chapter', 'Unknown')}")
+        chapter.setWordWrap(True)
         chapter.setStyleSheet("color: #A0A0A0; font-size: 10pt; margin-bottom: 8px;")
         layout.addWidget(chapter)
 
@@ -840,12 +844,13 @@ class StoryInsightsViewer(QDialog):
         layout = QVBoxLayout(self)
 
         # Header
-        header = QLabel("📊 Story Insights Dashboard")
-        header.setObjectName("dialogHeader")
-        layout.addWidget(header)
+        self.header = QLabel("🔮 Story Intelligence Report")
+        self.header.setObjectName("dialogHeader")
+        layout.addWidget(self.header)
 
         # Tabs for different analysis types
         self.tabs = QTabWidget()
+        self.tabs.setUsesScrollButtons(True)
 
         # Pacing Heatmap tab
         self.pacing_tab = self.create_pacing_tab()
@@ -876,79 +881,9 @@ class StoryInsightsViewer(QDialog):
         self.apply_modern_style()
 
     def apply_modern_style(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-            }
-            
-            QLabel#dialogHeader {
-                font-size: 20pt;
-                font-weight: bold;
-                padding: 20px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7C4DFF, stop:1 #5E35B1);
-                color: white;
-                border-radius: 8px;
-                margin-bottom: 10px;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #2D2D2D;
-                background: #1A1A1A;
-                top: -1px;
-            }
-            
-            QTabBar::tab {
-                padding: 10px 20px;
-                margin-right: 2px;
-                background: #252526;
-                color: #A0A0A0;
-                border: 1px solid #2D2D2D;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background: #1A1A1A;
-                color: #7C4DFF;
-                border-bottom: 1px solid #1A1A1A;
-            }
-            
-            QScrollArea {
-                border: none;
-                background: transparent;
-            }
-            
-            QScrollArea QWidget {
-                background: transparent;
-            }
-            
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 10px 30px;
-                color: #E0E0E0;
-                font-weight: 500;
-                font-size: 11pt;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QTextEdit {
-                background: #1E1E1E;
-                color: #E0E0E0;
-                border: 1px solid #2D2D2D;
-                border-radius: 4px;
-                padding: 15px;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 10pt;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")
 
     def create_issues_tab(self) -> QWidget:
         """Create a tab for displaying issues"""
@@ -958,6 +893,7 @@ class StoryInsightsViewer(QDialog):
         # Scroll area for issues
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         scroll_widget = QWidget()

@@ -8,16 +8,19 @@ import os
 import sys
 import threading
 import logging
+import ctypes
+from ctypes import wintypes
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, Callable, Optional
 from functools import wraps
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
-    QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox, QFileDialog, QApplication
+    QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox, QFileDialog, QApplication,
+    QLabel, QPushButton
 )
-from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer
-from PyQt6.QtGui import QAction, QKeySequence, QIcon
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer, QPoint
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QMouseEvent
 from pathlib import Path
 
 from ai_integration import AIFeatures
@@ -36,6 +39,7 @@ from analyzer import AIAnalyzer
 from story_extractor import StoryExtractor
 from chapter_insights_viewer import ChapterInsightsViewer
 from world_rules_dialog import WorldRulesDialog
+from theme_manager import theme_manager
 
 LOG_PATH: Optional[Path] = None
 
@@ -95,6 +99,7 @@ def install_exception_hooks() -> None:
     threading.excepthook = handle_thread_exception
 
 
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -105,6 +110,14 @@ class MainWindow(QMainWindow):
         self.current_project: Project = None
         self.autosave = AutoSaveManager(self, delay_ms=1000)  # 1 second delay
         self.autosave.save_triggered.connect(self._safe_slot(self.save_current_content))
+        
+        # Initialize attributes that might be accessed in eventFilter before init_ui finishes
+        self.menu_bar = None
+        self.top_bar = None
+        self.logo_label = None
+        self.app_title_label = None
+        self.window_controls = None
+        
         self.init_ui()
         self.restore_settings()
         self.insight_db = None
@@ -150,17 +163,94 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         """Initialize the user interface"""
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Window |
+            Qt.WindowType.WindowMinMaxButtonsHint
+        )
         self.setWindowTitle("Novelist AI")
-        self.setMinimumSize(1200, 800)
+        self.setWindowIcon(QIcon("icons/novelist_ai.ico"))
+        self.setMinimumSize(600, 500)
+        self.resize(1200, 800)
+
+        # Create central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        outer_layout = QVBoxLayout(central_widget)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        # Unified Title Bar (Menu + Window Controls)
+        self.top_bar = QWidget()
+        self.top_bar.setObjectName("topBar")
+        self.top_bar.setFixedHeight(40)  # Increased height for branding
+        top_layout = QHBoxLayout(self.top_bar)
+        top_layout.setContentsMargins(10, 0, 0, 0)
+        top_layout.setSpacing(0)
+        top_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+
+        # Branding
+        self.logo_label = QLabel()
+        self.logo_label.setPixmap(QIcon("icons/novelist_ai.ico").pixmap(24, 24))
+        self.logo_label.setObjectName("appLogo")
+        self.logo_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        top_layout.addWidget(self.logo_label)
+
+        self.app_title_label = QLabel("NOVELIST AI")
+        self.app_title_label.setObjectName("appTitle")
+        self.app_title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        top_layout.addWidget(self.app_title_label)
+
+        # Custom Menu Bar
+        self.menu_bar = QMenuBar()
+        self.menu_bar.setObjectName("customMenuBar")
+        self.menu_bar.setFixedHeight(40)  # Match top bar height
+        top_layout.addWidget(self.menu_bar)
+
+        top_layout.addStretch()
+
+        # Window Controls
+        self.window_controls = QWidget()
+        self.window_controls.setObjectName("windowControls")
+        self.window_controls.setFixedHeight(40)  # Match top bar height
+        controls_layout = QHBoxLayout(self.window_controls)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+        controls_layout.setSpacing(0)
+        controls_layout.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        self.min_btn = QPushButton("—")
+        self.max_btn = QPushButton("▢")
+        self.close_btn = QPushButton("✕")
+
+        for btn in [self.min_btn, self.max_btn, self.close_btn]:
+            btn.setFixedSize(45, 40)  # Match top bar height
+            btn.setFlat(True)
+            controls_layout.addWidget(btn)
+
+        self.min_btn.setObjectName("minButton")
+        self.max_btn.setObjectName("maxButton")
+        self.close_btn.setObjectName("closeButton")
+
+        self.min_btn.clicked.connect(self.showMinimized)
+        self.max_btn.clicked.connect(self.toggle_maximize)
+        self.close_btn.clicked.connect(self.close)
+
+        top_layout.addWidget(self.window_controls, 0, Qt.AlignmentFlag.AlignRight)
+        outer_layout.addWidget(self.top_bar)
+
+        # Install event filters for window management
+        self.top_bar.installEventFilter(self)
+        self.menu_bar.installEventFilter(self)
+        self.window_controls.installEventFilter(self)
 
         # Apply global stylesheet
         self.apply_futuristic_theme()
 
-        # Create central widget with splitters FIRST
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        content_widget = QWidget()
+        outer_layout.addWidget(content_widget)
 
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QHBoxLayout(content_widget)
         main_layout.setContentsMargins(5, 5, 5, 5)
         main_layout.setSpacing(5)
 
@@ -170,11 +260,12 @@ class MainWindow(QMainWindow):
 
         # Left panel - Project tree
         self.project_tree = ProjectTreeWidget()
-        self.project_tree.setMinimumWidth(240)
+        self.project_tree.setMinimumWidth(100)
         self.project_tree.item_selected.connect(self._safe_slot(self.on_item_selected))
 
         # Center panel - Editor
         self.editor = EditorWidget()
+        self.editor.setMinimumWidth(200)
         self.editor.content_changed.connect(self._safe_slot(self.on_content_changed))
         self.editor.rewrite_requested.connect(self._safe_slot(self.rewrite_selection_with_persona))
         self.editor.rewrite_selection_action_requested.connect(self._safe_slot(self.rewrite_selection_with_persona))
@@ -184,13 +275,13 @@ class MainWindow(QMainWindow):
         # Right panel - Metadata
         # Right panel - Smart panel (metadata OR chapter insights)
         self.metadata_panel = MetadataPanel()
-        self.metadata_panel.setMinimumWidth(280)
+        self.metadata_panel.setMinimumWidth(150)
         self.metadata_panel.metadata_changed.connect(self._safe_slot(self.on_metadata_changed))
 
 
         # Chapter insights viewer
         self.chapter_insights = ChapterInsightsViewer()
-        self.chapter_insights.setMinimumWidth(280)
+        self.chapter_insights.setMinimumWidth(150)
         self.chapter_insights.analyze_requested.connect(self._safe_slot(self.analyze_chapter_ai))
         self.chapter_insights.fix_requested.connect(self._safe_slot(self.on_insight_fix_requested))
         self.chapter_insights.jump_requested.connect(self._safe_slot(self.on_insight_jump_requested))
@@ -206,12 +297,16 @@ class MainWindow(QMainWindow):
             self._safe_slot(self.on_properties_panel_toggled)
         )
 
+        self.chapter_insights.collapse_toggled.connect(
+            self._safe_slot(self.on_properties_panel_toggled)
+        )
+
         # Hide chapter insights initially
         self.chapter_insights.setVisible(False)
 
-        # NOW create menu bar and toolbar (after widgets exist)
+        # NOW create menu bar (after widgets exist)
         self.create_menu_bar()
-        self.create_toolbar()
+        # self.create_toolbar()  # Main toolbar hidden as requested
         self.project_tree.ai_analyze_requested.connect(self._safe_slot(self.analyze_chapter_ai))
         self.project_tree.ai_fix_requested.connect(self._safe_slot(self.fix_chapter_ai))
 
@@ -220,11 +315,11 @@ class MainWindow(QMainWindow):
         main_splitter.addWidget(self.editor)
         main_splitter.addWidget(self.right_panel)
 
-        # Set initial splitter sizes - give more space to tree and metadata
-        main_splitter.setSizes([320, 600, 320])
-        main_splitter.setStretchFactor(0, 1)
-        main_splitter.setStretchFactor(1, 3)
-        main_splitter.setStretchFactor(2, 1)
+        # Set initial splitter sizes - give more space to editor
+        main_splitter.setSizes([200, 800, 280])
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
+        main_splitter.setStretchFactor(2, 0)
 
         main_layout.addWidget(main_splitter)
 
@@ -238,198 +333,170 @@ class MainWindow(QMainWindow):
         self._right_panel_sizes = None
         self._right_panel_collapsed_width = 64
 
+    # Window Management
+    def eventFilter(self, obj, event):
+        # Handle mouse events for window management in the top bar area
+        if event.type() in [event.Type.MouseButtonPress, event.Type.MouseButtonDblClick,
+                           event.Type.MouseMove, event.Type.MouseButtonRelease]:
+            
+            top_bar = getattr(self, "top_bar", None)
+            if not top_bar:
+                return super().eventFilter(obj, event)
+
+            # Use global position for consistency across multiple filtered widgets
+            global_pos = event.globalPosition().toPoint()
+            # Map to main window coordinates (since top_bar starts at 0,0)
+            window_pos = self.mapFromGlobal(global_pos)
+            
+            # Target the entire top bar height (40px)
+            if 0 <= window_pos.y() <= 45:
+                # 1. Check if we hit an interactive functional widget
+                child = self.childAt(window_pos)
+                
+                # If it's a QPushButton (window controls), let it handle the event
+                if isinstance(child, QPushButton):
+                    return super().eventFilter(obj, event)
+                
+                # If it's the menu bar, check if we hit a menu action
+                menu_bar = getattr(self, "menu_bar", None)
+                if menu_bar:
+                    m_pos = menu_bar.mapFromGlobal(global_pos)
+                    if menu_bar.actionAt(m_pos):
+                        return super().eventFilter(obj, event)
+
+                # 2. draggable/maximizable area logic
+                
+                # Double click to toggle maximize
+                if event.type() == event.Type.MouseButtonDblClick:
+                    if event.button() == Qt.MouseButton.LeftButton:
+                        self.toggle_maximize()
+                        return True
+
+                # Press to start drag
+                if event.type() == event.Type.MouseButtonPress:
+                    if event.button() == Qt.MouseButton.LeftButton:
+                        # For all windows, we wait for a slight move to either restore (if maximized)
+                        # or start a native drag (if normal). This allows double-clicks to be detected.
+                        self._drag_start_pos = global_pos
+                        self._is_preparing_drag = True
+                        return True
+
+                # Move to handle restoration or manual drag
+                elif event.type() == event.Type.MouseMove:
+                    if getattr(self, "_is_preparing_drag", False):
+                        # Use a threshold to avoid accidental restores/drags on tiny movements
+                        if (global_pos - self._drag_start_pos).manhattanLength() > 5:
+                            self._is_preparing_drag = False
+                            
+                            if self.isMaximized():
+                                # Restore window state
+                                old_width = self.width()
+                                old_x = self.frameGeometry().x()
+                                self.showNormal()
+                                new_width = self.width()
+                                
+                                # Calculate relative X to keep window under cursor
+                                rel_x = (self._drag_start_pos.x() - old_x) / old_width if old_width > 0 else 0.5
+                                new_x = global_pos.x() - int(new_width * rel_x)
+                                
+                                # Move and then start native drag for smoothness
+                                self.move(new_x, global_pos.y() - 20)
+                                
+                                if sys.platform == "win32":
+                                    try:
+                                        ctypes.windll.user32.ReleaseCapture()
+                                        ctypes.windll.user32.SendMessageW(int(self.winId()), 0xA1, 2, 0)
+                                    except Exception:
+                                        pass
+                                return True
+                            else:
+                                # Normal window -> start drag
+                                if sys.platform == "win32":
+                                    try:
+                                        ctypes.windll.user32.ReleaseCapture()
+                                        ctypes.windll.user32.SendMessageW(int(self.winId()), 0xA1, 2, 0)
+                                        return True
+                                    except Exception:
+                                        pass
+                                
+                                self._drag_pos = global_pos - self.frameGeometry().topLeft()
+                                return True
+                    
+                    elif hasattr(self, "_drag_pos") and self._drag_pos:
+                        self.move(global_pos - self._drag_pos)
+                        return True
+
+                # Release to clean up
+                elif event.type() == event.Type.MouseButtonRelease:
+                    self._is_preparing_drag = False
+                    self._drag_pos = None
+
+        return super().eventFilter(obj, event)
+
+    def mousePressEvent(self, event: QMouseEvent):
+        # Interactions are handled in eventFilter now
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        super().mouseMoveEvent(event)
+
+    def toggle_maximize(self):
+        if self.isMaximized():
+            self.showNormal()
+            # If after showing normal the window is still too large (near screen size),
+            # force it to a smaller default size.
+            rect = self.geometry()
+            screen = self.screen().availableGeometry()
+            if rect.width() > screen.width() * 0.8 or rect.height() > screen.height() * 0.8:
+                self.resize(1200, 800)
+                # Center it if it was almost fullscreen
+                self.move(
+                    screen.center().x() - 600,
+                    screen.center().y() - 400
+                )
+        else:
+            self.showMaximized()
+        
+        # Explicitly trigger layout update
+        if hasattr(self, 'centralWidget') and self.centralWidget():
+            self.centralWidget().updateGeometry()
+        self.update()
+
+    def changeEvent(self, event):
+        """Handle window state changes to update the maximize button icon and margins"""
+        if event.type() == event.Type.WindowStateChange:
+            if self.isMaximized():
+                self.max_btn.setText("❐")
+                # When maximized, remove margins if they were set
+                if hasattr(self, 'centralWidget') and self.centralWidget() and self.centralWidget().layout():
+                    self.centralWidget().layout().setContentsMargins(0, 0, 0, 0)
+            else:
+                self.max_btn.setText("▢")
+                # Restore margins if needed
+            
+            # Ensure the layout updates
+            QTimer.singleShot(0, self.update)
+            QTimer.singleShot(0, lambda: self.centralWidget().layout().activate() if self.centralWidget() and self.centralWidget().layout() else None)
+            
+        super().changeEvent(event)
+
     def apply_futuristic_theme(self):
-        """Apply a dark, futuristic, and sleek theme across the application."""
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #121212;
-            }
-            
-            QWidget {
-                background-color: #121212;
-                color: #E0E0E0;
-                font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
-            }
-            
-            QSplitter::handle {
-                background-color: #2D2D2D;
-            }
-            
-            QSplitter::handle:horizontal {
-                width: 1px;
-            }
-            
-            QMenuBar {
-                background-color: #1A1A1A;
-                border-bottom: 1px solid #2D2D2D;
-                padding: 4px;
-            }
-            
-            QMenuBar::item {
-                padding: 4px 10px;
-                background: transparent;
-            }
-            
-            QMenuBar::item:selected {
-                background: #2D2D2D;
-                border-radius: 4px;
-            }
-            
-            QMenu {
-                background-color: #1E1E1E;
-                border: 1px solid #3D3D3D;
-                padding: 5px;
-            }
-            
-            QMenu::item {
-                padding: 6px 25px 6px 20px;
-                border-radius: 3px;
-            }
-            
-            QMenu::item:selected {
-                background-color: #7C4DFF;
-                color: white;
-            }
-            
-            QToolBar {
-                background-color: #1A1A1A;
-                border: none;
-                spacing: 10px;
-                padding: 5px;
-                color: #E0E0E0;
-            }
-            
-            QToolButton {
-                background: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 6px;
-            }
-            
-            QToolButton:hover {
-                background: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QStatusBar {
-                background-color: #1A1A1A;
-                color: #A0A0A0;
-                border-top: 1px solid #2D2D2D;
-            }
-            
-            QMessageBox {
-                background-color: #1E1E1E;
-            }
-            
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #E0E0E0;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QPushButton:pressed {
-                background-color: #1A1A1A;
-            }
-            
-            QPushButton#primaryButton {
-                background-color: #7C4DFF;
-                border: none;
-                color: white;
-            }
-            
-            QPushButton#primaryButton:hover {
-                background-color: #9E7CFF;
-            }
-            
-            QLineEdit, QTextEdit, QPlainTextEdit {
-                background-color: #1E1E1E;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px;
-                color: #E0E0E0;
-                selection-background-color: #7C4DFF;
-            }
-            
-            QLineEdit:focus, QTextEdit:focus {
-                border: 1px solid #7C4DFF;
-            }
-            
-            QScrollBar:vertical {
-                border: none;
-                background: #121212;
-                width: 10px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:vertical {
-                background: #3D3D3D;
-                min-height: 20px;
-                border-radius: 5px;
-            }
-            
-            QScrollBar::handle:vertical:hover {
-                background: #4D4D4D;
-            }
-            
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            
-            QScrollBar:horizontal {
-                border: none;
-                background: #121212;
-                height: 10px;
-                margin: 0px;
-            }
-            
-            QScrollBar::handle:horizontal {
-                background: #3D3D3D;
-                min-width: 20px;
-                border-radius: 5px;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #2D2D2D;
-                top: -1px;
-                background-color: #1E1E1E;
-            }
-            
-            QTabBar::tab {
-                background-color: #1A1A1A;
-                border: 1px solid #2D2D2D;
-                padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background-color: #1E1E1E;
-                border-bottom-color: #1E1E1E;
-                color: #7C4DFF;
-            }
-            
-            QHeaderView::section {
-                background-color: #1A1A1A;
-                color: #A0A0A0;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid #2D2D2D;
-            }
-        """)
+        """Apply the current theme across the application."""
+        self.setStyleSheet(theme_manager.get_main_stylesheet())
+        
+        # Guard against calling before UI is fully initialized
+        if getattr(self, 'editor', None):
+            self.editor.apply_modern_style()
+        if getattr(self, 'metadata_panel', None):
+            self.metadata_panel.apply_modern_style()
+        if getattr(self, 'project_tree', None):
+            self.project_tree.setStyleSheet(theme_manager.get_main_stylesheet())
 
     def on_properties_panel_toggled(self, collapsed: bool):
         """Collapse or expand the properties panel within the splitter."""
         if collapsed:
-            self._right_panel_sizes = self.main_splitter.sizes()
+            if not self.right_panel.maximumWidth() == self._right_panel_collapsed_width:
+                self._right_panel_sizes = self.main_splitter.sizes()
             self.right_panel.setMinimumWidth(self._right_panel_collapsed_width)
             self.right_panel.setMaximumWidth(self._right_panel_collapsed_width)
             sizes = self.main_splitter.sizes()
@@ -443,6 +510,9 @@ class MainWindow(QMainWindow):
             self.right_panel.setMinimumWidth(0)
             self.right_panel.setMaximumWidth(16777215)
             if self._right_panel_sizes and len(self._right_panel_sizes) == 3:
+                # Ensure the last size is not the collapsed width
+                if self._right_panel_sizes[2] <= self._right_panel_collapsed_width:
+                     self._right_panel_sizes = [320, 600, 320]
                 self.main_splitter.setSizes(self._right_panel_sizes)
             else:
                 self.main_splitter.setSizes([320, 600, 320])
@@ -453,7 +523,7 @@ class MainWindow(QMainWindow):
 
     def create_menu_bar(self):
         """Create the menu bar"""
-        menubar = self.menuBar()
+        menubar = self.menu_bar
 
         # File menu
         file_menu = menubar.addMenu("&File")
@@ -837,6 +907,7 @@ class MainWindow(QMainWindow):
     def show_settings(self):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
+        dialog.theme_changed.connect(self.apply_futuristic_theme)
         dialog.exec()
 
     def _custom_dict_path(self):
@@ -876,7 +947,7 @@ class MainWindow(QMainWindow):
         from models.project import ItemType, Chapter
 
         # Show appropriate panel based on item type
-        if isinstance(item, Chapter):
+        if item.item_type == ItemType.CHAPTER:
             # Show chapter insights instead of metadata
             self.metadata_panel.setVisible(False)
             self.chapter_insights.setVisible(True)
@@ -892,6 +963,9 @@ class MainWindow(QMainWindow):
 
             # Still load in editor (read-only chapter view)
             self.editor.load_item(item, self.db_manager, self.current_project.id)
+            
+            # Sync collapsed state
+            self.on_properties_panel_toggled(self.chapter_insights.is_collapsed)
             self.update_editor_toolbar_layout()
         else:
             # Show normal metadata for other items
@@ -899,9 +973,11 @@ class MainWindow(QMainWindow):
             self.chapter_insights.setVisible(False)
             self.chapter_insights.clear()
 
-            # Load normally
             self.editor.load_item(item, self.db_manager, self.current_project.id)
             self.metadata_panel.load_item(item, self.db_manager, self.current_project.id)
+            
+            # Sync collapsed state
+            self.on_properties_panel_toggled(self.metadata_panel.is_collapsed)
             self.update_editor_toolbar_layout()
 
     def on_content_changed(self):
@@ -919,12 +995,14 @@ class MainWindow(QMainWindow):
         self.update_editor_toolbar_layout(is_collapsed=is_collapsed)
 
     def update_editor_toolbar_layout(self, is_collapsed: Optional[bool] = None):
-        """Update editor toolbar layout based on metadata panel visibility."""
-        if not self.metadata_panel.isVisible():
+        """Update editor toolbar layout based on active right panel visibility."""
+        active_panel = self.metadata_panel if self.metadata_panel.isVisible() else self.chapter_insights
+        
+        if not active_panel.isVisible():
             self.editor.set_toolbar_compact(False)
             return
 
-        collapsed = self.metadata_panel.is_collapsed if is_collapsed is None else is_collapsed
+        collapsed = active_panel.is_collapsed if is_collapsed is None else is_collapsed
         self.editor.set_toolbar_compact(not collapsed)
 
     def run_ai_analysis(self, analysis_type: str):
@@ -1026,10 +1104,32 @@ class MainWindow(QMainWindow):
         geometry = self.settings.value("geometry")
         if geometry:
             self.restoreGeometry(geometry)
+            
+            # If restored size is significantly smaller than our new comfortable default,
+            # or if it was restored to a very small size, bump it up.
+            rect = self.geometry()
+            if rect.width() < 1100 or rect.height() < 700:
+                self.resize(1200, 800)
+                screen = self.screen().availableGeometry()
+                self.move(
+                    screen.center().x() - 600,
+                    screen.center().y() - 400
+                )
 
         state = self.settings.value("windowState")
         if state:
             self.restoreState(state)
+        
+        # Ensure it starts in normal mode as requested
+        if self.isMaximized():
+            self.showNormal()
+            # If it was maximized, we definitely want the new normal size
+            self.resize(1200, 800)
+            screen = self.screen().availableGeometry()
+            self.move(
+                screen.center().x() - 600,
+                screen.center().y() - 400
+            )
 
         splitter_state = self.settings.value("splitterState")
         if splitter_state:
@@ -1112,7 +1212,7 @@ class MainWindow(QMainWindow):
 
             from models.project import ItemType, Scene, Chapter
 
-            if isinstance(item, Scene):
+            if item.item_type == ItemType.SCENE:
                 # Uses your existing AIIntegration pipeline to fill Summary/Goal/Conflict/Outcome
                 def _refresh():
                     refreshed = self.db_manager.load_item(item_id)
@@ -1121,7 +1221,7 @@ class MainWindow(QMainWindow):
 
                 self.ai_integration.fill_scene_properties(item_id, callback=_refresh)
 
-            elif isinstance(item, Chapter):
+            elif item.item_type == ItemType.CHAPTER:
                 # You said you’ll handle the UI next — chapter analysis can be wired here later.
                 QMessageBox.information(
                     self,
@@ -1566,13 +1666,14 @@ def main():
     install_exception_hooks()
 
     # Enable high DPI scaling
-    QApplication.setHighDpiScaleFactorRoundingPolicy(
-        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
-    )
+    # QApplication.setHighDpiScaleFactorRoundingPolicy(
+    #     Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    # )
 
     # Create application
     app = QApplication(sys.argv)
     app.setApplicationName("Novelist AI")
+    app.setWindowIcon(QIcon("icons/novelist_ai.ico"))
     app.setOrganizationName("Rabbit Consulting")
     app.setOrganizationDomain("rabbit-consulting.com")
     
@@ -1594,7 +1695,14 @@ def main():
     print("Application running - use File menu to create/open projects")
 
     # Start event loop - this keeps the window open
-    exit_code = app.exec()
+    print("main: starting event loop")
+    try:
+        exit_code = app.exec()
+    except Exception as e:
+        print(f"main: exception in app.exec(): {e}")
+        import traceback
+        traceback.print_exc()
+        exit_code = 1
     print(f"Application closed with exit code: {exit_code}")
     return exit_code
 

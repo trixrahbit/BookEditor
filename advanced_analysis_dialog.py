@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QFont
+from theme_manager import theme_manager
 from typing import Dict, Any, List, Optional
 
 
@@ -249,9 +250,9 @@ class AdvancedAnalysisDialog(QDialog):
         chapter = self.db_manager.load_item(self.chapter_id)
         chapter_name = chapter.name if chapter else "Unknown Chapter"
 
-        header = QLabel(f"🤖 AI Analysis: {chapter_name}")
-        header.setObjectName("dialogHeader")
-        layout.addWidget(header)
+        self.header = QLabel(f"🤖 AI Analysis: {chapter_name}")
+        self.header.setObjectName("dialogHeader")
+        layout.addWidget(self.header)
 
         # Progress bar
         self.progress_bar = QProgressBar()
@@ -295,97 +296,9 @@ class AdvancedAnalysisDialog(QDialog):
         self.apply_modern_style()
 
     def apply_modern_style(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-            }
-            
-            QLabel#dialogHeader {
-                font-size: 16pt;
-                font-weight: bold;
-                padding: 15px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7C4DFF, stop:1 #5E35B1);
-                color: white;
-                border-radius: 6px;
-                margin-bottom: 10px;
-            }
-            
-            QLabel#infoLabel {
-                color: #A0A0A0;
-                font-size: 9pt;
-                margin: 4px;
-            }
-            
-            QProgressBar {
-                border: 1px solid #2D2D2D;
-                border-radius: 4px;
-                text-align: center;
-                height: 24px;
-                background: #1A1A1A;
-            }
-            QProgressBar::chunk {
-                background: #7C4DFF;
-                border-radius: 3px;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #2D2D2D;
-                background: #1A1A1A;
-                top: -1px;
-            }
-            
-            QTabBar::tab {
-                padding: 10px 20px;
-                margin-right: 2px;
-                background: #252526;
-                color: #A0A0A0;
-                border: 1px solid #2D2D2D;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background: #1A1A1A;
-                color: #7C4DFF;
-                border-bottom: 1px solid #1A1A1A;
-            }
-            
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #E0E0E0;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            
-            QGroupBox {
-                border: 1px solid #2D2D2D;
-                border-radius: 6px;
-                margin-top: 20px;
-                padding-top: 15px;
-                font-weight: bold;
-                color: #7C4DFF;
-            }
-            
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")
 
     def create_issues_tab(self) -> QWidget:
         """Create tab for displaying issues"""

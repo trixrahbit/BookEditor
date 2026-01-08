@@ -37,40 +37,9 @@ class ProjectTreeWidget(QTreeWidget):
         self.setAcceptDrops(True)
         self.setDragDropMode(QTreeWidget.DragDropMode.InternalMove)
 
-        # Make items larger and more readable
-        self.setIndentation(25)
-        self.setIconSize(QSize(20, 20))
-
-        # Apply modern futuristic styling
-        self.setStyleSheet("""
-            QTreeWidget {
-                background: #1E1E1E;
-                border: none;
-                font-size: 11pt;
-                outline: none;
-                color: #E0E0E0;
-                padding: 5px;
-            }
-            
-            QTreeWidget::item {
-                padding: 8px 5px;
-                border-bottom: 1px solid #2D2D2D;
-                border-radius: 4px;
-            }
-            
-            QTreeWidget::item:hover {
-                background: #2D2D2D;
-            }
-            
-            QTreeWidget::item:selected {
-                background: #7C4DFF;
-                color: white;
-            }
-            
-            QTreeWidget::branch {
-                background: #1E1E1E;
-            }
-        """)
+        # Make items compact
+        self.setIndentation(15)
+        self.setIconSize(QSize(16, 16))
 
     def load_project(self, db_manager: DatabaseManager, project_id: str):
         """Load project structure into tree"""
@@ -217,13 +186,13 @@ class ProjectTreeWidget(QTreeWidget):
 
             if db_item:
                 # AI features for scenes
-                if isinstance(db_item, Scene):
+                if db_item.item_type == ItemType.SCENE:
                     ai_fill_action = QAction("🤖 AI: Auto-fill Scene Properties", self)
                     ai_fill_action.triggered.connect(lambda: self.ai_fill_requested.emit(item_id))
                     menu.addAction(ai_fill_action)
                     menu.addSeparator()
                 # AI features for chapters
-                if isinstance(db_item, Chapter):
+                if db_item.item_type == ItemType.CHAPTER:
                     new_scene_action = QAction("➕ New Scene in this Chapter", self)
                     new_scene_action.triggered.connect(lambda: self.add_scene_to_chapter(item_id))
                     menu.addAction(new_scene_action)
@@ -362,7 +331,7 @@ class ProjectTreeWidget(QTreeWidget):
 
         # Confirm the parent really is a chapter
         parent = self.db_manager.load_item(chapter_id)
-        if not parent or not isinstance(parent, Chapter):
+        if not parent or parent.item_type != ItemType.CHAPTER:
             QMessageBox.warning(self, "Invalid Parent", "Selected item is not a chapter.")
             return
 

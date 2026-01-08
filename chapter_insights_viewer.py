@@ -4,7 +4,8 @@ Chapter Insights Viewer - Shows analysis results when a chapter is selected
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QTabWidget, QTextEdit, QGroupBox, QToolButton
+    QScrollArea, QFrame, QTabWidget, QTextEdit, QGroupBox, QToolButton,
+    QSpacerItem, QSizePolicy
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon
@@ -44,8 +45,8 @@ class CollapsibleSectionInsight(QWidget):
 
         self.content_area = QWidget()
         self.content_layout = QVBoxLayout(self.content_area)
-        self.content_layout.setContentsMargins(2, 2, 2, 2)
-        self.content_layout.setSpacing(2)
+        self.content_layout.setContentsMargins(5, 5, 5, 5)
+        self.content_layout.setSpacing(8)
 
         self.layout.addWidget(self.toggle_btn)
         self.layout.addWidget(self.content_area)
@@ -74,10 +75,10 @@ class InsightIssueCard(QFrame):
             QFrame {
                 background: #252526;
                 border-left: 3px solid #7C4DFF;
-                padding: 8px;
-                margin: 3px 0;
-                border-top-right-radius: 4px;
-                border-bottom-right-radius: 4px;
+                padding: 10px;
+                margin: 5px 0;
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
             }
             QFrame:hover {
                 background: #2D2D2D;
@@ -86,8 +87,8 @@ class InsightIssueCard(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(6)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
 
         header_layout = QHBoxLayout()
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +106,7 @@ class InsightIssueCard(QFrame):
         if loc:
             loc_label = QLabel(f"📍 {loc}")
             loc_label.setStyleSheet("color: #888; font-size: 8pt;")
+            loc_label.setWordWrap(True)
             header_layout.addWidget(loc_label)
 
         header_layout.addStretch()
@@ -127,7 +129,8 @@ class InsightIssueCard(QFrame):
 
         # Buttons layout
         btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(5)
+        btn_layout.setSpacing(8)
+        btn_layout.setContentsMargins(0, 4, 0, 0)
 
         # Jump button
         self.jump_btn = QPushButton("👁️ Jump to Scene")
@@ -184,11 +187,13 @@ class ChapterInsightsViewer(QWidget):
     analyze_requested = pyqtSignal(str)  # chapter_id
     fix_requested = pyqtSignal(dict, str)  # issue_data, chapter_id
     jump_requested = pyqtSignal(dict) # issue_data
+    collapse_toggled = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
         self.chapter_id = None
         self.insight_service = None
+        self.is_collapsed = False
         self.init_ui()
 
     def init_ui(self):
@@ -206,35 +211,78 @@ class ChapterInsightsViewer(QWidget):
                 border-bottom: 1px solid #2D2D2D;
             }
         """)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(15, 0, 15, 0)
+        self.header_layout = QHBoxLayout(header)
+        self.header_layout.setContentsMargins(15, 0, 15, 0)
+        self.header_layout.setAlignment(Qt.AlignmentFlag.AlignVCenter)
 
         self.title_label = QLabel("Chapter Insights")
         self.title_label.setObjectName("titleLabel")
         self.title_label.setStyleSheet("""
             font-size: 14pt;
             font-weight: bold;
-            color: #7C4DFF;
+            color: #FFFFFF;
             background: transparent;
         """)
-        header_layout.addWidget(self.title_label)
+        self.header_layout.addWidget(self.title_label)
 
-        header_layout.addStretch()
+        self.header_spacer = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.header_layout.addSpacerItem(self.header_spacer)
+
+        self.toggle_button = QToolButton()
+        self.toggle_button.setObjectName("insightToggle")
+        self.toggle_button.setText("−")
+        self.toggle_button.setToolTip("Collapse insights panel")
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setStyleSheet("""
+            QToolButton#insightToggle {
+                border: 1px solid #3D3D3D;
+                border-radius: 6px;
+                padding: 4px 8px;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2D2D2D, stop:1 #252526);
+                color: #E0E0E0;
+                font-weight: bold;
+            }
+            QToolButton#insightToggle:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #3D3D3D, stop:1 #333333);
+                border-color: #7C4DFF;
+            }
+        """)
+        self.toggle_button.clicked.connect(self.toggle_collapsed)
+        self.header_layout.addWidget(self.toggle_button)
+
+        layout.addWidget(header)
+        self.header_widget = header
+
+        # Main content area
+        self.content_widget = QWidget()
+        content_layout = QVBoxLayout(self.content_widget)
+        content_layout.setContentsMargins(15, 15, 15, 15)
+        content_layout.setSpacing(15)
+
+        # Status & Action Area
+        status_action_layout = QHBoxLayout()
+        
+        # Status label
+        self.status_label = QLabel("No analysis yet")
+        self.status_label.setStyleSheet("color: #A0A0A0; font-style: italic;")
+        status_action_layout.addWidget(self.status_label)
+        
+        status_action_layout.addStretch()
 
         self.analyze_btn = QPushButton("🤖 Run AI Analysis")
-        self.analyze_btn.setFixedWidth(140)
-        self.analyze_btn.setFixedHeight(30)
+        self.analyze_btn.setFixedWidth(120)
+        self.analyze_btn.setFixedHeight(26)
         self.analyze_btn.setStyleSheet("""
             QPushButton {
-                background-color: #7C4DFF;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #7C4DFF, stop:1 #6A3DE8);
                 color: white;
                 border: none;
                 border-radius: 4px;
                 font-weight: bold;
-                font-size: 9pt;
+                font-size: 8pt;
             }
             QPushButton:hover {
-                background-color: #9E7CFF;
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #8F66FF, stop:1 #7C4DFF);
             }
             QPushButton:disabled {
                 background-color: #2D2D2D;
@@ -243,28 +291,23 @@ class ChapterInsightsViewer(QWidget):
         """)
         self.analyze_btn.clicked.connect(self._on_analyze_clicked)
         self.analyze_btn.setEnabled(False)
-        header_layout.addWidget(self.analyze_btn)
-
-        layout.addWidget(header)
-
-        # Main content area
-        content_widget = QWidget()
-        content_layout = QVBoxLayout(content_widget)
-        content_layout.setContentsMargins(10, 10, 10, 10)
-        content_layout.setSpacing(10)
-
-        # Status label
-        self.status_label = QLabel("No analysis yet")
-        self.status_label.setStyleSheet("color: #A0A0A0; font-style: italic; margin-bottom: 5px;")
-        content_layout.addWidget(self.status_label)
+        status_action_layout.addWidget(self.analyze_btn)
+        
+        content_layout.addLayout(status_action_layout)
 
         # Tabs for different insight types
         self.tabs = QTabWidget()
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.setTabPosition(QTabWidget.TabPosition.North)
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
                 border: 1px solid #2D2D2D;
-                background: #1E1E1E;
+                background: #121212;
                 top: -1px;
+            }
+            QTabBar {
+                qproperty-drawBase: 0;
+                left: 0px;
             }
             QTabBar::tab {
                 padding: 8px 12px;
@@ -275,16 +318,21 @@ class ChapterInsightsViewer(QWidget):
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
                 margin-right: 2px;
-                font-size: 9pt;
+                font-size: 8pt;
+                min-width: 60px;
             }
             QTabBar::tab:selected {
-                background: #1E1E1E;
-                color: #7C4DFF;
+                background: #252526;
+                color: #FFFFFF;
+                border-bottom: 2px solid #7C4DFF;
                 font-weight: bold;
-                border-bottom: 1px solid #1E1E1E;
             }
             QTabBar::tab:hover:!selected {
-                background: #252526;
+                background: #2D2D2D;
+                color: #FFFFFF;
+            }
+            QTabBar::scroller {
+                width: 20px;
             }
         """)
 
@@ -324,8 +372,31 @@ class ChapterInsightsViewer(QWidget):
         self.empty_state.setStyleSheet("color: #4D4D4D; font-size: 12pt; padding: 40px;")
         content_layout.addWidget(self.empty_state)
 
-        layout.addWidget(content_widget)
+        layout.addWidget(self.content_widget)
         self.tabs.setVisible(False)
+
+    def toggle_collapsed(self):
+        """Collapse or expand the insights panel body."""
+        self.is_collapsed = not self.is_collapsed
+        if self.is_collapsed:
+            self.content_widget.setVisible(False)
+            self.title_label.setVisible(False)
+            if self.header_spacer is not None:
+                self.header_layout.removeItem(self.header_spacer)
+            self.toggle_button.setText("+")
+            self.toggle_button.setToolTip("Expand insights panel")
+            self.header_layout.setContentsMargins(6, 6, 6, 6)
+            self.header_layout.setAlignment(self.toggle_button, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        else:
+            self.content_widget.setVisible(True)
+            self.title_label.setVisible(True)
+            if self.header_spacer is not None:
+                self.header_layout.addItem(self.header_spacer)
+            self.toggle_button.setText("−")
+            self.toggle_button.setToolTip("Collapse insights panel")
+            self.header_layout.setContentsMargins(15, 0, 15, 0)
+            self.header_layout.setAlignment(self.toggle_button, Qt.AlignmentFlag.AlignRight)
+        self.collapse_toggled.emit(self.is_collapsed)
 
     def _create_issues_widget(self) -> QWidget:
         """Create a scrollable widget for issues"""
@@ -335,6 +406,7 @@ class ChapterInsightsViewer(QWidget):
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("""
             QScrollArea { 
                 border: none; 
@@ -349,7 +421,8 @@ class ChapterInsightsViewer(QWidget):
         scroll_content.setObjectName("scrollContent")
         scroll_content.setStyleSheet("QWidget#scrollContent { background: transparent; }")
         scroll_layout = QVBoxLayout(scroll_content)
-        scroll_layout.setSpacing(3)
+        scroll_layout.setSpacing(10)
+        scroll_layout.setContentsMargins(5, 5, 5, 5)
 
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)

@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QSize
 from PyQt6.QtGui import QFont, QAction, QTextCharFormat, QColor, QTextListFormat, QTextCursor, QTextDocument
 from models.project import Scene, ItemType, Character, Chapter, Part, Location, PlotThread
 from db_manager import DatabaseManager
+from theme_manager import theme_manager
 from live_text_check import LiveTextChecker, CheckResult, SpellIssue, GrammarIssue
 from character_voice_rewrite_dialog import CharacterVoiceRewriteDialog
 
@@ -298,7 +299,7 @@ class EditorWidget(QWidget):
         self.text_edit.blockSignals(True)
         self.text_edit.setExtraSelections([])
 
-        if isinstance(item, Scene):
+        if item.item_type == ItemType.SCENE:
             self.title_label.setText(item.name)
             self.text_edit.setAcceptRichText(True)
             self.text_edit.setHtml(item.content or "")
@@ -306,7 +307,7 @@ class EditorWidget(QWidget):
             self.set_enabled(True)
             self.auto_save_timer.start()
 
-        elif isinstance(item, Chapter):
+        elif item.item_type == ItemType.CHAPTER:
             self.title_label.setText(f"{item.name} (chapter view)")
             self.text_edit.setAcceptRichText(False)
 
@@ -344,7 +345,7 @@ class EditorWidget(QWidget):
         self.update_word_count()
 
         # ✅ Run checks immediately when a scene loads (not just after typing)
-        if self.live_checks_enabled and isinstance(item, Scene):
+        if self.live_checks_enabled and item.item_type == ItemType.SCENE:
             self.live_checker.schedule(self.text_edit.toPlainText())
         else:
             # Clear underlines in non-scene views
@@ -732,74 +733,7 @@ class EditorWidget(QWidget):
 
     def apply_modern_style(self):
         """Apply modern futuristic styling to the editor"""
-        self.setStyleSheet("""
-            QWidget#titleBar {
-                background: #1A1A1A;
-                border-bottom: 1px solid #2D2D2D;
-            }
-            
-            QLabel#sceneTitle {
-                font-size: 16pt;
-                font-weight: bold;
-                color: #7C4DFF;
-                padding: 2px 10px;
-                background: transparent;
-                border: none;
-            }
-            
-            QLabel#wordCount {
-                color: #A0A0A0;
-                font-size: 10pt;
-                padding: 5px 10px;
-            }
-            
-            QToolBar#editorToolbar {
-                background: #1A1A1A;
-                border-bottom: 1px solid #2D2D2D;
-                padding: 2px;
-                spacing: 4px;
-                color: #E0E0E0;
-            }
-            
-            QToolBar#editorToolbar QToolButton {
-                background: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                padding: 4px;
-                margin: 1px;
-            }
-            
-            QToolBar#editorToolbar QToolButton:hover {
-                background: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QToolBar#editorToolbar QToolButton:checked {
-                background: #7C4DFF;
-                color: white;
-            }
-            
-            QFontComboBox, QComboBox {
-                background: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                padding: 2px 5px;
-                margin: 1px;
-                color: #E0E0E0;
-            }
-            
-            QTextEdit#mainEditor {
-                background-color: #1E1E1E;
-                color: #E0E0E0;
-                border: none;
-                padding: 40px;
-                selection-background-color: #7C4DFF;
-                selection-color: white;
-                font-family: 'Georgia', 'serif';
-                font-size: 12pt;
-                line-height: 1.6;
-            }
-        """)
+        self.setStyleSheet(theme_manager.get_editor_stylesheet())
 
     def rewrite_selection_with_persona(self):
         """Rewrite selected text with persona"""

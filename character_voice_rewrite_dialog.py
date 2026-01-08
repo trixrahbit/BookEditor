@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QScrollArea
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from theme_manager import theme_manager
 from typing import Optional, List, Dict, Any
 
 from models.project import Character
@@ -165,35 +166,6 @@ class CharacterVoiceRewriteDialog(QDialog):
         return self.rewritten_text
 
     def apply_modern_style(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #1E1E1E;
-                color: #E0E0E0;
-            }
-            QLabel {
-                color: #E0E0E0;
-            }
-            QTextEdit {
-                background-color: #252526;
-                color: #E0E0E0;
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                font-family: 'Consolas', 'Courier New', monospace;
-            }
-            QComboBox {
-                background-color: #252526;
-                color: #E0E0E0;
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                padding: 5px;
-            }
-            QPushButton {
-                border-radius: 4px;
-                padding: 5px 15px;
-                background-color: #3D3D3D;
-                color: #E0E0E0;
-            }
-            QPushButton:hover {
-                background-color: #4D4D4D;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")

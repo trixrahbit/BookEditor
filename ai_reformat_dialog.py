@@ -13,6 +13,7 @@ from typing import Dict, List
 import re
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from theme_manager import theme_manager
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QProgressBar, QTextEdit, QGroupBox, QMessageBox,
@@ -182,9 +183,9 @@ class AIReformatDialog(QDialog):
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        header = QLabel("✨ Reformat Scenes with AI")
-        header.setObjectName("dialogHeader")
-        layout.addWidget(header)
+        self.header = QLabel("✨ Reformat Scenes with AI")
+        self.header.setObjectName("dialogHeader")
+        layout.addWidget(self.header)
 
         self.info_label = QLabel("Select which scenes to reformat, then click Start.")
         self.info_label.setObjectName("infoLabel")
@@ -259,110 +260,9 @@ class AIReformatDialog(QDialog):
         self.apply_modern_style()
 
     def apply_modern_style(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-            }
-            
-            QLabel#dialogHeader {
-                font-size: 16pt;
-                font-weight: bold;
-                padding: 15px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7C4DFF, stop:1 #5E35B1);
-                color: white;
-                border-radius: 6px;
-                margin-bottom: 10px;
-            }
-            
-            QLabel#infoLabel {
-                color: #A0A0A0;
-                padding: 8px;
-                font-size: 10pt;
-            }
-            
-            QLabel#statusLabel {
-                font-size: 10pt;
-                color: #E0E0E0;
-            }
-            
-            QTreeWidget {
-                background: #1E1E1E;
-                border: 1px solid #2D2D2D;
-                border-radius: 4px;
-                color: #E0E0E0;
-            }
-            QTreeWidget::item {
-                padding: 4px;
-            }
-            
-            QProgressBar {
-                border: 1px solid #2D2D2D;
-                border-radius: 5px;
-                text-align: center;
-                height: 20px;
-                background-color: #1A1A1A;
-            }
-            QProgressBar::chunk {
-                background-color: #7C4DFF;
-                border-radius: 5px;
-            }
-            
-            QTextEdit {
-                background: #1A1A1A;
-                color: #A0A0A0;
-                font-family: 'Consolas', 'Courier New', monospace;
-                font-size: 9pt;
-                padding: 8px;
-                border: 1px solid #2D2D2D;
-                border-radius: 4px;
-            }
-            
-            QGroupBox {
-                border: 1px solid #2D2D2D;
-                border-radius: 6px;
-                margin-top: 20px;
-                padding-top: 15px;
-                font-weight: bold;
-                color: #7C4DFF;
-            }
-            
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-            
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #E0E0E0;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QPushButton#primaryButton {
-                background-color: #7C4DFF;
-                border: none;
-                color: white;
-            }
-            
-            QPushButton#primaryButton:hover {
-                background-color: #9E7CFF;
-            }
-            
-            QPushButton:disabled {
-                background-color: #1A1A1A;
-                color: #555555;
-                border-color: #2D2D2D;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")
 
     def load_scenes(self):
         """Load all scenes and build the selection tree."""

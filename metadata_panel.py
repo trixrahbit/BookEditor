@@ -13,6 +13,7 @@ from models.project import (
 )
 
 from db_manager import DatabaseManager
+from theme_manager import theme_manager
 
 
 class MetadataPanel(QWidget):
@@ -38,6 +39,7 @@ class MetadataPanel(QWidget):
         title_widget.setObjectName("metadataTitle")
         self.title_layout = QHBoxLayout(title_widget)
         self.title_layout.setContentsMargins(15, 15, 15, 15)
+        self.title_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.title_label = QLabel("Properties")
         self.title_label.setObjectName("titleLabel")
@@ -94,7 +96,7 @@ class MetadataPanel(QWidget):
             self.toggle_button.setText("+")
             self.toggle_button.setToolTip("Expand properties panel")
             self.title_layout.setContentsMargins(6, 6, 6, 6)
-            self.title_layout.setAlignment(self.toggle_button, Qt.AlignmentFlag.AlignLeft)
+            self.title_layout.setAlignment(self.toggle_button, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         else:
             self.scroll.setVisible(True)
             self.save_button.setVisible(True)
@@ -117,17 +119,17 @@ class MetadataPanel(QWidget):
         self.clear_form()
 
         # Build form based on item type
-        if isinstance(item, Scene):
+        if item.item_type == ItemType.SCENE:
             self.build_scene_form(item)
-        elif isinstance(item, Character):
+        elif item.item_type == ItemType.CHARACTER:
             self.build_character_form(item)
-        elif isinstance(item, Location):
+        elif item.item_type == ItemType.LOCATION:
             self.build_location_form(item)
-        elif isinstance(item, PlotThread):
+        elif item.item_type == ItemType.PLOT_THREAD:
             self.build_plot_form(item)
-        elif isinstance(item, Chapter):
+        elif item.item_type == ItemType.CHAPTER:
             self.build_chapter_form(item)
-        elif isinstance(item, Part):
+        elif item.item_type == ItemType.PART:
             self.build_part_form(item)
 
         self.save_button.setEnabled(True)
@@ -246,70 +248,5 @@ class MetadataPanel(QWidget):
         self.metadata_changed.emit()
 
     def apply_modern_style(self):
-        """Apply modern futuristic styling"""
-        self.setStyleSheet("""
-            QWidget#metadataTitle {
-                background: #1A1A1A;
-                border-bottom: 1px solid #2D2D2D;
-            }
-
-            QLabel#titleLabel {
-                font-size: 14pt;
-                font-weight: bold;
-                color: #7C4DFF;
-                background: transparent;
-            }
-
-            QToolButton#metadataToggle {
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                padding: 2px 6px;
-                background: #252526;
-                color: #E0E0E0;
-                font-weight: bold;
-            }
-
-            QToolButton#metadataToggle:hover {
-                background: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-
-            QScrollArea#metadataScroll {
-                background: #1E1E1E;
-                border: none;
-            }
-
-            QLineEdit#metadataLineEdit,
-            QTextEdit#metadataTextEdit,
-            QComboBox#metadataCombo {
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                padding: 6px;
-                background: #252526;
-                color: #E0E0E0;
-            }
-
-            QLineEdit#metadataLineEdit:focus,
-            QTextEdit#metadataTextEdit:focus {
-                border-color: #7C4DFF;
-            }
-
-            QPushButton#saveButton {
-                background-color: #00E676;
-                color: #121212;
-                border: none;
-                border-radius: 6px;
-                padding: 10px;
-                font-weight: bold;
-                margin: 10px;
-            }
-
-            QPushButton#saveButton:hover {
-                background-color: #69F0AE;
-            }
-
-            QPushButton#saveButton:disabled {
-                background-color: #2D2D2D;
-                color: #4D4D4D;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_main_stylesheet())

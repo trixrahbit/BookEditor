@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QCheckBox, QPlainTextEdit, QScrollArea, QWidget
 )
 from PyQt6.QtCore import Qt, pyqtSignal
+from theme_manager import theme_manager
 from typing import Optional
 
 from writing_persona import WritingPersona, PersonaManager, PERSONA_TEMPLATES
@@ -252,9 +253,9 @@ class PersonaManagerDialog(QDialog):
         layout = QVBoxLayout(self)
 
         # Header
-        header = QLabel("✍️ Writing Personas")
-        header.setObjectName("dialogHeader")
-        layout.addWidget(header)
+        self.header = QLabel("👤 Manage Writing Personas")
+        self.header.setObjectName("dialogHeader")
+        layout.addWidget(self.header)
 
         info = QLabel("Define writing styles to maintain consistent voice across your manuscript")
         info.setObjectName("infoLabel")
@@ -336,106 +337,9 @@ class PersonaManagerDialog(QDialog):
         self.apply_modern_style()
 
     def apply_modern_style(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-            }
-            
-            QLabel#dialogHeader {
-                font-size: 16pt;
-                font-weight: bold;
-                padding: 15px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7C4DFF, stop:1 #5E35B1);
-                color: white;
-                border-radius: 6px;
-                margin-bottom: 10px;
-            }
-            
-            QLabel#infoLabel {
-                color: #A0A0A0;
-                padding: 10px;
-                font-size: 10pt;
-            }
-            
-            QLabel#sectionHeader {
-                font-weight: bold;
-                font-size: 11pt;
-                color: #E0E0E0;
-            }
-            
-            QListWidget {
-                background: #1E1E1E;
-                border: 1px solid #2D2D2D;
-                border-radius: 4px;
-                color: #E0E0E0;
-            }
-            QListWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #2D2D2D;
-            }
-            QListWidget::item:selected {
-                background: #2D2D2D;
-                color: #7C4DFF;
-            }
-            
-            QSplitter::handle {
-                background: #2D2D2D;
-            }
-            
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #E0E0E0;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QPushButton#primaryButton {
-                background-color: #7C4DFF;
-                border: none;
-                color: white;
-            }
-            
-            QPushButton#primaryButton:hover {
-                background-color: #9E7CFF;
-            }
-            
-            QPushButton:disabled {
-                background-color: #1A1A1A;
-                color: #555555;
-                border-color: #2D2D2D;
-            }
-            
-            QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
-                background-color: #1E1E1E;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px;
-                color: #E0E0E0;
-            }
-            
-            QGroupBox {
-                border: 1px solid #2D2D2D;
-                border-radius: 6px;
-                margin-top: 20px;
-                padding-top: 15px;
-                font-weight: bold;
-                color: #7C4DFF;
-            }
-            
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")
 
     def load_personas(self):
         """Load personas into list"""

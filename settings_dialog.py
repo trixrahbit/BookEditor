@@ -6,11 +6,16 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QTabWidget,
     QLineEdit, QSpinBox, QCheckBox, QDialogButtonBox, QLabel,
     QGroupBox, QPushButton, QMessageBox, QWidget, QRadioButton,
-    QButtonGroup
+    QButtonGroup, QColorDialog, QComboBox
 )
-from PyQt6.QtCore import Qt, QSettings
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal
+from PyQt6.QtGui import QColor
+
+from theme_manager import theme_manager
 
 class SettingsDialog(QDialog):
+    theme_changed = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.settings = QSettings("Rabbit Consulting", "Novelist AI")
@@ -71,6 +76,10 @@ class SettingsDialog(QDialog):
         # Editor tab
         editor_tab = self.create_editor_tab()
         self.tabs.addTab(editor_tab, "Editor")
+
+        # Appearance tab
+        appearance_tab = self.create_appearance_tab()
+        self.tabs.addTab(appearance_tab, "Appearance")
 
         # AI Analysis tab
         ai_tab = self.create_ai_tab()
@@ -219,6 +228,57 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return widget
 
+    def create_appearance_tab(self):
+        """Create appearance preferences tab"""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        form = QFormLayout()
+        form.setSpacing(12)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Dark", "Light", "Custom"])
+        form.addRow("Theme:", self.theme_combo)
+
+        # Custom Colors
+        self.primary_color_btn = QPushButton("Pick Color")
+        self.primary_color_btn.clicked.connect(lambda: self.pick_color("primary"))
+        form.addRow("Primary Color:", self.primary_color_btn)
+
+        self.bg_color_btn = QPushButton("Pick Color")
+        self.bg_color_btn.clicked.connect(lambda: self.pick_color("bg"))
+        form.addRow("Background Color:", self.bg_color_btn)
+
+        self.text_color_btn = QPushButton("Pick Color")
+        self.text_color_btn.clicked.connect(lambda: self.pick_color("text"))
+        form.addRow("Text Color:", self.text_color_btn)
+
+        layout.addLayout(form)
+        layout.addStretch()
+
+        self.theme_combo.currentTextChanged.connect(self.update_appearance_ui)
+        
+        return widget
+
+    def pick_color(self, color_type):
+        current_color = getattr(self, f"{color_type}_color", "#7C4DFF" if color_type == "primary" else "#121212")
+        color = QColorDialog.getColor(QColor(current_color), self, f"Select {color_type.capitalize()} Color")
+        if color.isValid():
+            setattr(self, f"{color_type}_color", color.name())
+            self.update_color_button_style(color_type)
+
+    def update_color_button_style(self, color_type):
+        btn = getattr(self, f"{color_type}_color_btn")
+        color = getattr(self, f"{color_type}_color")
+        btn.setStyleSheet(f"background-color: {color}; color: {'white' if QColor(color).lightness() < 128 else 'black'};")
+
+    def update_appearance_ui(self):
+        is_custom = self.theme_combo.currentText() == "Custom"
+        self.primary_color_btn.setEnabled(is_custom)
+        self.bg_color_btn.setEnabled(is_custom)
+        self.text_color_btn.setEnabled(is_custom)
+
     def create_ai_tab(self):
         """Create AI analysis preferences tab"""
         widget = QWidget()
@@ -288,6 +348,18 @@ class SettingsDialog(QDialog):
         self.enable_caching_check.setChecked(self.settings.value("ai/enable_caching", True, type=bool))
         self.disable_temperature_check.setChecked(self.settings.value("ai/disable_temperature", False, type=bool))
 
+        # Appearance
+        theme = self.settings.value("appearance/theme", "Dark")
+        self.theme_combo.setCurrentText(theme)
+        self.primary_color = self.settings.value("appearance/primary_color", "#7C4DFF")
+        self.bg_color = self.settings.value("appearance/bg_color", "#121212")
+        self.text_color = self.settings.value("appearance/text_color", "#E0E0E0")
+        
+        self.update_color_button_style("primary")
+        self.update_color_button_style("bg")
+        self.update_color_button_style("text")
+        self.update_appearance_ui()
+
     def save_settings(self):
         """Save settings to QSettings"""
         provider = "openai" if self.openai_radio.isChecked() else "azure"
@@ -311,9 +383,16 @@ class SettingsDialog(QDialog):
         self.settings.setValue("ai/enable_caching", self.enable_caching_check.isChecked())
         self.settings.setValue("ai/disable_temperature", self.disable_temperature_check.isChecked())
 
+        # Appearance
+        self.settings.setValue("appearance/theme", self.theme_combo.currentText())
+        self.settings.setValue("appearance/primary_color", self.primary_color)
+        self.settings.setValue("appearance/bg_color", self.bg_color)
+        self.settings.setValue("appearance/text_color", self.text_color)
+
     def save_and_accept(self):
         """Save settings and close"""
         self.save_settings()
+        self.theme_changed.emit()
 
         # Refresh AI manager with new settings
         from ai_manager import ai_manager
@@ -406,170 +485,4 @@ class SettingsDialog(QDialog):
 
     def apply_modern_style(self):
         """Apply modern styling"""
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-                color: #E0E0E0;
-            }
-            
-            QLabel {
-                color: #E0E0E0;
-            }
-
-            QLabel#settingsHeader {
-                font-size: 18pt;
-                font-weight: bold;
-                color: white;
-                padding: 15px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7C4DFF, stop:1 #5E35B1);
-                border-radius: 6px;
-                margin-bottom: 10px;
-            }
-            
-            QLabel#infoLabel {
-                color: #A0A0A0;
-                padding: 10px;
-                background: #1E1E1E;
-                border: 1px solid #2D2D2D;
-                border-radius: 6px;
-                margin: 5px 0;
-            }
-            
-            QTabWidget::pane {
-                border: 1px solid #2D2D2D;
-                background: #1A1A1A;
-                top: -1px;
-            }
-            
-            QTabBar::tab {
-                padding: 10px 20px;
-                margin-right: 2px;
-                background: #252526;
-                color: #A0A0A0;
-                border: 1px solid #2D2D2D;
-                border-bottom: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            
-            QTabBar::tab:selected {
-                background: #1A1A1A;
-                color: #7C4DFF;
-                border-bottom: 1px solid #1A1A1A;
-            }
-            
-            QTabBar::tab:hover {
-                background: #3D3D3D;
-            }
-
-            QWidget {
-                background-color: transparent;
-            }
-
-            QTabWidget QWidget {
-                background-color: #1A1A1A;
-            }
-            
-            QLineEdit, QSpinBox, QComboBox {
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px;
-                background: #1E1E1E;
-                color: #E0E0E0;
-            }
-            
-            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-                border-color: #7C4DFF;
-            }
-            
-            QCheckBox {
-                color: #E0E0E0;
-                spacing: 8px;
-            }
-            
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 3px;
-            }
-            
-            QCheckBox::indicator:checked {
-                background-color: #7C4DFF;
-                border-color: #7C4DFF;
-            }
-
-            QRadioButton {
-                color: #E0E0E0;
-                spacing: 8px;
-            }
-            
-            QRadioButton::indicator {
-                width: 18px;
-                height: 18px;
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 9px;
-            }
-            
-            QRadioButton::indicator:checked {
-                background-color: #7C4DFF;
-                border: 4px solid #252526;
-            }
-
-            QGroupBox {
-                border: 1px solid #2D2D2D;
-                border-radius: 6px;
-                margin-top: 20px;
-                padding-top: 15px;
-                font-weight: bold;
-                color: #7C4DFF;
-            }
-            
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }
-
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #E0E0E0;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-
-            QPushButton#testButton {
-                background-color: #252526;
-                border: 1px solid #7C4DFF;
-                color: #7C4DFF;
-            }
-
-            QPushButton#testButton:hover {
-                background-color: #7C4DFF;
-                color: white;
-            }
-            
-            QDialogButtonBox QPushButton {
-                min-width: 80px;
-            }
-            
-            QDialogButtonBox QPushButton[text="OK"] {
-                background-color: #7C4DFF;
-                color: white;
-                border: none;
-            }
-            
-            QDialogButtonBox QPushButton[text="OK"]:hover {
-                background-color: #9E7CFF;
-            }
-        """)
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())

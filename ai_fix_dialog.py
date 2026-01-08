@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QTextEdit, QMessageBox, QProgressDialog, QSplitter
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from theme_manager import theme_manager
 from PyQt6.QtGui import QTextCursor
 from typing import Dict, Any, List, Optional
 
@@ -93,9 +94,9 @@ class AIFixDialog(QDialog):
         scene = self.db_manager.load_item(self.scene_id)
         scene_name = scene.name if scene else "Unknown Scene"
 
-        header = QLabel(f"AI Fix: {self.issue.get('issue', 'Unknown Issue')}")
-        header.setObjectName("dialogHeader")
-        layout.addWidget(header)
+        self.header = QLabel(f"AI Fix: {self.issue.get('issue', 'Unknown Issue')}")
+        self.header.setObjectName("dialogHeader")
+        layout.addWidget(self.header)
 
         # Issue info
         info_text = f"""
@@ -182,91 +183,9 @@ class AIFixDialog(QDialog):
         self.apply_modern_style()
 
     def apply_modern_style(self):
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-            }
-            
-            QLabel#dialogHeader {
-                font-size: 14pt;
-                font-weight: bold;
-                padding: 12px;
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #7C4DFF, stop:1 #5E35B1);
-                color: white;
-                border-radius: 6px;
-                margin-bottom: 5px;
-            }
-            
-            QLabel#infoLabel {
-                background: #1E1E1E;
-                color: #E0E0E0;
-                padding: 12px;
-                border: 1px solid #2D2D2D;
-                border-radius: 6px;
-                margin: 8px 0;
-            }
-            
-            QLabel#statusLabel {
-                color: #7C4DFF;
-                font-style: italic;
-                margin: 8px;
-            }
-            
-            QSplitter::handle {
-                background: #2D2D2D;
-                width: 2px;
-            }
-            
-            QTextEdit#originalText {
-                background: #1E1E1E;
-                color: #A0A0A0;
-                font-family: 'Georgia', serif;
-                font-size: 11pt;
-                padding: 15px;
-                border: 1px solid #333333;
-            }
-            
-            QTextEdit#fixedText {
-                background: #1A1A1A;
-                color: #E0E0E0;
-                font-family: 'Georgia', serif;
-                font-size: 11pt;
-                padding: 15px;
-                border: 1px solid #333333;
-            }
-            
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 10px 20px;
-                color: #E0E0E0;
-                font-weight: 500;
-            }
-            
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-            
-            QPushButton#primaryButton {
-                background-color: #00C853;
-                border: none;
-                color: white;
-            }
-            
-            QPushButton#primaryButton:hover {
-                background-color: #69F0AE;
-                color: black;
-            }
-            
-            QPushButton:disabled {
-                background-color: #1A1A1A;
-                color: #555555;
-                border-color: #2D2D2D;
-            }
-        """)
+        """Apply modern styling"""
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")
 
     def generate_fix(self):
         """Start generating AI fix"""

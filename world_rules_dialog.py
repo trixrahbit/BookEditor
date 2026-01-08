@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from models.project import WorldRule, Project
+from theme_manager import theme_manager
 import uuid
 
 class WorldRulesDialog(QDialog):
@@ -15,58 +16,21 @@ class WorldRulesDialog(QDialog):
         self.resize(800, 600)
         self.init_ui()
         self.load_rules()
+        self.apply_modern_style()
+
+    def apply_modern_style(self):
+        self.setStyleSheet(theme_manager.get_dialog_stylesheet())
+        self.header.setObjectName("settingsHeader")
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #121212;
-                color: #E0E0E0;
-            }
-            QLabel {
-                color: #E0E0E0;
-            }
-            QListWidget {
-                background-color: #1E1E1E;
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                color: #E0E0E0;
-            }
-            QListWidget::item:selected {
-                background-color: #7C4DFF;
-                color: white;
-            }
-            QLineEdit, QTextEdit, QComboBox {
-                background-color: #1E1E1E;
-                border: 1px solid #3D3D3D;
-                border-radius: 4px;
-                padding: 6px;
-                color: #E0E0E0;
-            }
-            QCheckBox {
-                color: #E0E0E0;
-            }
-            QPushButton {
-                background-color: #252526;
-                border: 1px solid #3D3D3D;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #E0E0E0;
-            }
-            QPushButton:hover {
-                background-color: #3D3D3D;
-                border-color: #7C4DFF;
-            }
-        """)
-
-        header = QLabel("World Rules Engine")
-        header.setStyleSheet("font-size: 16pt; font-weight: bold; color: #7C4DFF; margin-bottom: 10px;")
-        layout.addWidget(header)
+        self.header = QLabel("World Rules Engine")
+        layout.addWidget(self.header)
         
         description = QLabel("Define the laws, magic limits, technology levels, and cultural norms for your story. AI will use these to flag violations.")
         description.setWordWrap(True)
-        description.setStyleSheet("color: #A0A0A0; margin-bottom: 20px;")
+        description.setObjectName("infoLabel")
         layout.addWidget(description)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
