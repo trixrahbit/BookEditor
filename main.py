@@ -17,10 +17,10 @@ from functools import wraps
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QMenuBar, QMenu, QToolBar, QStatusBar, QMessageBox, QFileDialog, QApplication,
-    QLabel, QPushButton
+    QLabel, QPushButton, QStackedWidget, QTabWidget
 )
 from PyQt6.QtCore import Qt, QSettings, pyqtSignal, QTimer, QPoint
-from PyQt6.QtGui import QAction, QKeySequence, QIcon, QMouseEvent
+from PyQt6.QtGui import QAction, QKeySequence, QIcon, QMouseEvent, QActionGroup
 from pathlib import Path
 
 from ai_integration import AIFeatures
@@ -40,6 +40,7 @@ from story_extractor import StoryExtractor
 from chapter_insights_viewer import ChapterInsightsViewer
 from world_rules_dialog import WorldRulesDialog
 from theme_manager import theme_manager
+from storyboard_view import StoryboardView
 
 LOG_PATH: Optional[Path] = None
 
@@ -263,7 +264,13 @@ class MainWindow(QMainWindow):
         self.project_tree.setMinimumWidth(100)
         self.project_tree.item_selected.connect(self._safe_slot(self.on_item_selected))
 
-        # Center panel - Editor
+        # Center panel - Editor and Storyboard in a tab widget
+        self.center_tabs = QTabWidget()
+        self.center_tabs.setObjectName("centerTabs")
+        self.center_tabs.setDocumentMode(True)  # Makes it look cleaner/more integrated
+        self.center_tabs.setMovable(False)      # Prevent accidental tab reordering for now
+        self.center_tabs.setTabsClosable(False) # Ensure tabs aren't accidentally closed
+        
         self.editor = EditorWidget()
         self.editor.setMinimumWidth(200)
         self.editor.content_changed.connect(self._safe_slot(self.on_content_changed))
@@ -271,6 +278,13 @@ class MainWindow(QMainWindow):
         self.editor.rewrite_selection_action_requested.connect(self._safe_slot(self.rewrite_selection_with_persona))
         self.editor.rewrite_scene_action_requested.connect(self._safe_slot(self.rewrite_scene_with_persona))
         self.project_tree.ai_fill_requested.connect(self._safe_slot(self.on_ai_fill_scene))
+
+        self.storyboard = StoryboardView()
+        self.storyboard.scene_selected.connect(self._safe_slot(self.on_storyboard_item_selected))
+        self.storyboard.chapter_selected.connect(self._safe_slot(self.on_storyboard_item_selected))
+        
+        self.center_tabs.addTab(self.editor, "📝 Editor")
+        self.center_tabs.addTab(self.storyboard, "📋 Storyboard")
 
         # Right panel - Metadata
         # Right panel - Smart panel (metadata OR chapter insights)
@@ -306,13 +320,12 @@ class MainWindow(QMainWindow):
 
         # NOW create menu bar (after widgets exist)
         self.create_menu_bar()
-        # self.create_toolbar()  # Main toolbar hidden as requested
         self.project_tree.ai_analyze_requested.connect(self._safe_slot(self.analyze_chapter_ai))
         self.project_tree.ai_fix_requested.connect(self._safe_slot(self.fix_chapter_ai))
 
         # Add widgets to splitter
         main_splitter.addWidget(self.project_tree)
-        main_splitter.addWidget(self.editor)
+        main_splitter.addWidget(self.center_tabs)
         main_splitter.addWidget(self.right_panel)
 
         # Set initial splitter sizes - give more space to editor
@@ -345,26 +358,37 @@ class MainWindow(QMainWindow):
 
             # Use global position for consistency across multiple filtered widgets
             global_pos = event.globalPosition().toPoint()
-            # Map to main window coordinates (since top_bar starts at 0,0)
+            
+            # Map global position to the widget that received the event
+            # to check if it's within the interactive parts of that specific widget
+            if hasattr(obj, 'mapFromGlobal'):
+                local_pos = obj.mapFromGlobal(global_pos)
+            else:
+                local_pos = None
+
+            # Map to main window coordinates
             window_pos = self.mapFromGlobal(global_pos)
             
-            # Target the entire top bar height (40px)
+            # 1. Target the top bar area (0-45px height)
             if 0 <= window_pos.y() <= 45:
-                # 1. Check if we hit an interactive functional widget
+                # Check if we hit an interactive functional widget
                 child = self.childAt(window_pos)
                 
                 # If it's a QPushButton (window controls), let it handle the event
                 if isinstance(child, QPushButton):
                     return super().eventFilter(obj, event)
                 
-                # If it's the menu bar, check if we hit a menu action
+                # If it's the menu bar or one of its children, let it handle the event
                 menu_bar = getattr(self, "menu_bar", None)
-                if menu_bar:
-                    m_pos = menu_bar.mapFromGlobal(global_pos)
-                    if menu_bar.actionAt(m_pos):
+                if menu_bar and (obj == menu_bar or menu_bar.isAncestorOf(obj)):
+                    if local_pos and menu_bar.actionAt(local_pos):
                         return super().eventFilter(obj, event)
+                    
+                    # If it's on the menu bar but NOT on an action, it might be a click 
+                    # that should open a menu. Let the menu bar handle it.
+                    return super().eventFilter(obj, event)
 
-                # 2. draggable/maximizable area logic
+                # 2. draggable/maximizable area logic (only if not handled by children)
                 
                 # Double click to toggle maximize
                 if event.type() == event.Type.MouseButtonDblClick:
@@ -624,6 +648,30 @@ class MainWindow(QMainWindow):
         rewrite_scene_action.triggered.connect(self._safe_slot(self.rewrite_scene_with_persona))
         writing_menu.addAction(rewrite_scene_action)
 
+        # View menu
+        view_menu = menubar.addMenu("&View")
+        
+        self.show_editor_action = QAction("📝 Editor", self)
+        self.show_editor_action.setCheckable(True)
+        self.show_editor_action.setChecked(True)
+        self.show_editor_action.triggered.connect(lambda: self.center_tabs.setCurrentWidget(self.editor))
+        view_menu.addAction(self.show_editor_action)
+        
+        self.show_storyboard_action = QAction("📋 Storyboard", self)
+        self.show_storyboard_action.setCheckable(True)
+        self.show_storyboard_action.triggered.connect(self._safe_slot(self.show_storyboard))
+        view_menu.addAction(self.show_storyboard_action)
+        
+        view_group = QActionGroup(self)
+        view_group.addAction(self.show_editor_action)
+        view_group.addAction(self.show_storyboard_action)
+        view_group.setExclusive(True)
+
+        # Connect tab change to update menu selection
+        self.center_tabs.currentChanged.connect(self._sync_view_actions)
+        
+        view_menu.addSeparator()
+
         writing_menu.addSeparator()
 
         world_rules_action = QAction("🌌 World Rules Engine...", self)
@@ -726,13 +774,6 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._safe_slot(self.show_about))
         help_menu.addAction(about_action)
 
-    def create_toolbar(self):
-        """Create the toolbar"""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-        # Toolbar actions (New Scene, Save) removed as requested
-
     def new_project(self):
         """Create a new project"""
         dialog = ProjectDialog(self)
@@ -775,6 +816,7 @@ class MainWindow(QMainWindow):
                 from writing_persona import PersonaManager
                 self.persona_manager = PersonaManager(self.db_manager, self.current_project.id)
                 self.editor.set_project_context(self.db_manager, self.current_project.id, self.persona_manager)
+                self.storyboard.set_project_context(self.db_manager, self.current_project.id)
                 # Update UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
@@ -824,6 +866,7 @@ class MainWindow(QMainWindow):
                 # Initialize persona manager
                 from writing_persona import PersonaManager
                 self.persona_manager = PersonaManager(self.db_manager, self.current_project.id)
+                self.storyboard.set_project_context(self.db_manager, self.current_project.id)
                 # Load UI
                 self.project_tree.load_project(self.db_manager, self.current_project.id)
                 self.setWindowTitle(f"Novelist AI - {self.current_project.name}")
@@ -931,10 +974,43 @@ class MainWindow(QMainWindow):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
 
+    def show_storyboard(self):
+        """Switch to storyboard view and reload content"""
+        if not self.current_project:
+            QMessageBox.information(self, "No Project", "Please open or create a project first.")
+            return
+            
+        self.storyboard.set_project_context(self.db_manager, self.current_project.id)
+        self.storyboard.reload()
+        self.center_tabs.setCurrentWidget(self.storyboard)
+
+    def _sync_view_actions(self, index: int):
+        """Synchronize menu actions with current tab"""
+        if self.center_tabs.widget(index) == self.editor:
+            self.show_editor_action.setChecked(True)
+        elif self.center_tabs.widget(index) == self.storyboard:
+            self.show_storyboard_action.setChecked(True)
+        
+        # Ensure the storyboard reloads if switched to
+        if self.center_tabs.widget(index) == self.storyboard and self.current_project:
+            self.storyboard.reload()
+
+    def on_storyboard_item_selected(self, item_id: str):
+        """Handle item selection from storyboard"""
+        # Switching to editor is now handled by the storyboard reader dialog internally
+        # but if we want to double click and still go to editor, we can keep this.
+        # However, the user wants a reader dialog.
+        pass
+
     def on_item_selected(self, item_id: str):
         """Handle item selection in project tree"""
         if not self.db_manager:
             return
+
+        # If we are in storyboard, switch back to editor
+        if self.center_tabs.currentWidget() == self.storyboard:
+            self.center_tabs.setCurrentWidget(self.editor)
+            self.show_editor_action.setChecked(True)
 
         # SAVE CURRENT ITEM IMMEDIATELY before switching
         self.autosave.save_immediately()
